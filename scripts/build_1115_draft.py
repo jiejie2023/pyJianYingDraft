@@ -61,7 +61,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "1115刚上高中书法生转变_AI粗剪包装_v2"
+NEW_DRAFT_NAME = "1115刚上高中书法生转变_AI粗剪包装_v3"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\1115刚上高中书法生转变_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -657,11 +657,10 @@ def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) 
             if not sub_spans:
                 continue
 
-            # Exact spoken first-char start & last-char end (plus tiny 0.09s reading breath)
+            # Natural human-edit reading breath (+0.14s tail, clamped before next spoken char)
             src_c0 = sub_spans[0][0]
-            src_c1 = sub_spans[-1][1] + 0.09
+            src_c1 = sub_spans[-1][1] + 0.14
             if char_cursor < len(char_spans):
-                # Never extend past the next spoken character!
                 src_c1 = min(src_c1, char_spans[char_cursor][0])
             else:
                 src_c1 = min(src_c1, sb)
@@ -745,11 +744,10 @@ def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) 
 
         merged.append(cue)
 
-    # Smooth tiny visual flicker gaps (<= 240ms) by gently extending prev.end_us to meet next.start_us
-    # (NEVER shifting start_us — start_us stays locked to exact spoken lip-sync!)
+    # Smooth short visual flicker gaps (<= 300ms) for relaxed, natural subtitle cadence
     for a, b in zip(merged, merged[1:]):
         gap = b.start_us - a.end_us
-        if 0 < gap <= 240_000:
+        if 0 < gap <= 300_000:
             a.end_us = b.start_us
         elif gap < 0:
             a.end_us = b.start_us
@@ -1314,8 +1312,13 @@ def main() -> int:
 
     script.append_track(TrackSpec(TrackType.text, name="字幕_金陵体"))
     script.append_track(TrackSpec(TrackType.text, name="重点大字包装"))
-    script.append_track(TrackSpec(TrackType.text, name="侧边原生文字_左"))
-    script.append_track(TrackSpec(TrackType.text, name="侧边原生文字_右"))
+    script.append_track(TrackSpec(TrackType.text, name="逐条罗列_行1"))
+    script.append_track(TrackSpec(TrackType.text, name="逐条罗列_行2"))
+    script.append_track(TrackSpec(TrackType.text, name="逐条罗列_行3"))
+    script.append_track(TrackSpec(TrackType.text, name="逐条罗列_行4"))
+    script.append_track(TrackSpec(TrackType.text, name="逐条罗列_右行1"))
+    script.append_track(TrackSpec(TrackType.text, name="逐条罗列_右行2"))
+    script.append_track(TrackSpec(TrackType.text, name="逐条罗列_右行3"))
     script.append_track(TrackSpec(TrackType.text, name="顶部常驻标题_上行"))
     script.append_track(TrackSpec(TrackType.text, name="顶部常驻标题_下行"))
 
@@ -1648,14 +1651,25 @@ def main() -> int:
 
     print(f"[subtitles] placed {sub_count} frame-accurate main cues (<=10 chars) + {popup_count} lip-synced keywords")
 
-    # 9. Bespoke, Airy, Content-Driven Visual Choreography (Real Mock Exam Sheets + Fresh Grade 1/2 Proof!)
-    #    ZERO bloated text walls, ZERO copy-paste clone screens, 100% 2D zone-collision free!
-    ex_st1 = cue_st("对碑帖理解", 149.16)
-    ex_st2 = cue_st("切换的临摹", 151.30)
-    ex_end = cue_st("以前在书法兴趣班", 154.76)
+    # 9. Bespoke, Airy, Content-Driven Visual Choreography:
+    #    - Staggered ONE-ROW-AT-A-TIME reveals (`打字机_I` / `左移弹动`, exact `380-450` & `1115新高一` human-editor craft!)
+    #      so multi-point texts NEVER dump all at once before she speaks them!
+    #    - Real ink-on-rice-paper `04_学生试卷` mock-exam sheets paired cleanly on the opposite side (zero collision!).
+    ex_hdr_st = cue_st("应试书法呢", 148.16)
+    ex_pt1_st = cue_st("对碑帖理解", 149.16)
+    ex_pt2_st = cue_st("多种书体之间", 150.38)
+    ex_pt3_st = cue_st("以及对繁体字", 152.67)
+    ex_end    = cue_st("以前在书法兴趣班", 154.76)
 
-    wk_st = cue_st("像我们高一", 178.24)
-    wk_ed = cue_ed("练习时间", 184.74)
+    hb_hdr_st = cue_st("可能就是老师哄着", 155.83)
+    hb_pt1_st = cue_st("写几幅作品", 156.86)
+    hb_pt2_st = cue_st("参加几个比赛", 157.58)
+    hb_end    = cue_st("但真正上了", 159.70)
+
+    wk_st  = cue_st("像我们高一", 178.24)
+    wk_p1  = cue_st("能够抽出一到两天", 181.04)
+    wk_p2  = cue_st("每天40分钟", 182.51)
+    wk_ed  = cue_ed("练习时间", 184.74)
 
     pip_plan: list[tuple[str, str, Path, float, float, float, int, int, IntroType, Path | None]] = [
         # --- 黄金前3秒开场钩子 (0.40s-3.50s): 准高一集训 + 高一抢跑 ---
@@ -1671,20 +1685,19 @@ def main() -> int:
         ("LEFT",   "画中画_左", img_gm_wall,        -0.62, 0.08, 0.34, ds1_ed + 300_000, chapter_windows[1][0] - 250_000, IntroType.向右滑动, sfx_whoosh),
         ("RIGHT",  "画中画_右", img_ym_notice,       0.62, 0.08, 0.34, ds1_ed + 700_000, chapter_windows[1][0] - 250_000, IntroType.向左滑动, None),
 
-        # --- 把书法当成一门主科规划 + 学了会用会考 (留白呼吸，单对依次切换) ---
+        # --- 把书法当成一门主科规划 + 学了会用会考 (留白呼吸，单侧交替切换) ---
         ("RIGHT",  "画中画_右", img_g1_kaogang,      0.62, 0.08, 0.34, cue_st("必须把它当做", 127.40), cue_st("甚至像我们", 133.34) - 100_000, IntroType.向左滑动, sfx_page),
         ("LEFT",   "画中画_左", img_g1_kegao,       -0.62, 0.08, 0.34, cue_st("甚至像我们", 133.34),   chapter_windows[2][0] - 150_000, IntroType.向右滑动, sfx_whoosh),
 
-        # --- 应试书法考什么 (彻底摒弃大段堆字！直接上 4 张真实模考宣纸真卷：楷书/行书 -> 篆书/隶书!) ---
-        ("LEFT",   "画中画_左", img_exam_kai,       -0.62, 0.10, 0.34, ex_st1,            ex_st2 + 500_000, IntroType.向右滑动, sfx_page),
-        ("RIGHT",  "画中画_右", img_exam_xing,       0.62, 0.10, 0.34, ex_st1 + 450_000,  ex_st2 + 500_000, IntroType.向左滑动, None),
-        ("LEFT",   "画中画_左", img_exam_zhuan,     -0.62, 0.10, 0.34, ex_st2 + 650_000,  ex_end,           IntroType.向右滑动, sfx_whoosh),
-        ("RIGHT",  "画中画_右", img_exam_li,         0.62, 0.10, 0.34, ex_st2 + 950_000,  ex_end,           IntroType.向左滑动, None),
+        # --- 应试书法考什么 (左侧逐条打字机罗列 + 右侧真实模考宣纸真卷依次接力，零碰撞、不堆字!) ---
+        ("RIGHT",  "画中画_右", img_exam_kai,        0.60, 0.08, 0.34, ex_pt1_st,          ex_pt3_st - 100_000, IntroType.向左滑动, sfx_page),
+        ("RIGHT",  "画中画_右", img_exam_zhuan,      0.60, 0.08, 0.34, ex_pt3_st,          ex_end - 80_000,     IntroType.向左滑动, sfx_whoosh),
 
-        # --- 考场错字扣5分拉下100名: 单侧克制呈现应试体系课，把视觉重心留给大字痛点 ---
-        ("LEFT",   "画中画_左", img_tixike_508,     -0.62, 0.08, 0.34, cue_st("但真正上了", 159.70), cue_st("都要", 163.92, after_us=160_000_000) + 400_000, IntroType.向右滑动, sfx_page),
+        # --- 考场错字扣5分拉下100名: 左侧展示行书/隶书真卷 + 体系课，右侧留白给大字痛点 ---
+        ("LEFT",   "画中画_左", img_exam_xing,      -0.62, 0.08, 0.34, hb_end,             hb_end + 2_200_000,  IntroType.向右滑动, sfx_page),
+        ("LEFT",   "画中画_左", img_tixike_508,     -0.62, 0.08, 0.34, hb_end + 2_350_000, cue_st("都要", 163.92, after_us=160_000_000) + 550_000, IntroType.向右滑动, None),
 
-        # --- 第三幕 · 平时周末节奏 (正常清晰口播 + 左极简3行提示 + 右规划表，清爽不克隆!) ---
+        # --- 第三幕 · 平时周末节奏 (左侧逐条打字机罗列 + 右侧高一规划表) ---
         ("RIGHT",  "画中画_右", img_plan_g1,         0.60, 0.08, 0.34, wk_st + 200_000,   wk_ed, IntroType.向左滑动, sfx_page),
 
         # --- 高一高二真实进步 + 高二超越高三集训生 ---
@@ -1693,12 +1706,12 @@ def main() -> int:
         ("LEFT",   "画中画_左", img_g1_beats_g3,    -0.62, 0.08, 0.34, cue_st("领悟能力", 188.55) + 550_000, cue_st("那除了周末以外", 193.86) - 100_000, IntroType.向右滑动, sfx_page),
         ("RIGHT",  "画中画_右", img_g2_district1,    0.62, 0.08, 0.34, cue_st("领悟能力", 188.55) + 850_000, cue_st("那除了周末以外", 193.86) - 100_000, IntroType.向左滑动, None),
 
-        # --- 寒暑假真题 / 繁篆带背 / 专门督学: 疏朗单侧轮播，每段只亮一侧，绝不塞满画面! ---
+        # --- 寒暑假真题 / 繁篆带背 / 专门督学: 疏朗单侧轮播，每段只亮一侧 ---
         ("RIGHT",  "画中画_右", img_g1_summer,       0.62, 0.08, 0.34, cue_st("那除了周末以外", 193.86), cue_st("繁体字", 199.13, after_us=193_000_000) - 100_000, IntroType.向左滑动, sfx_drop),
         ("LEFT",   "画中画_左", img_g1_daibei,      -0.62, 0.08, 0.34, cue_st("繁体字", 199.13, after_us=193_000_000), cue_st("加上线上", 202.08, after_us=198_000_000) - 100_000, IntroType.向右滑动, sfx_page),
         ("RIGHT",  "画中画_右", img_duxue_14,        0.62, 0.08, 0.34, cue_st("加上线上", 202.08, after_us=198_000_000), cue_st("我今天急着", 207.90, after_us=204_000_000) - 200_000, IntroType.向左滑动, sfx_drop),
 
-        # --- 结尾真诚邀约与信任闭环 (215.2s-228.7s): 3组稳步呈现，零闪切 ---
+        # --- 结尾真诚邀约与信任闭环 (215.2s-228.7s): 3组稳步呈现 ---
         ("LEFT",   "画中画_左", img_plan_g1_2v1,    -0.62, 0.10, 0.34, 215_200_000, 219_500_000, IntroType.向右滑动, sfx_page),
         ("RIGHT",  "画中画_右", img_g2_lishu_20d,    0.62, 0.10, 0.34, 215_500_000, 219_500_000, IntroType.向左滑动, None),
         ("LEFT",   "画中画_左", img_g1_zhuanshu,    -0.62, 0.10, 0.34, 219_800_000, 224_100_000, IntroType.向右滑动, sfx_whoosh),
@@ -1707,27 +1720,64 @@ def main() -> int:
         ("RIGHT",  "画中画_右", img_parent_thanks,   0.62, 0.10, 0.34, 224_700_000, total_tl_us, IntroType.向左滑动, None),
     ]
 
-    # ONLY crisp, ultra-short, breathable native text (max 4-8 chars/line — ZERO clipping!)
-    side_text_plan: list[tuple[str, str, str, float, float, float, int, int, TextIntro]] = [
-        # 3 处极简编号章节呼吸条 (双行 20pt, 左右宽裕留白!)
-        ("CENTER", "侧边原生文字_右", chapter_windows[0][2], 0.00, -0.04, 20.0, chapter_windows[0][0], chapter_windows[0][1], TextIntro.开幕),
-        # 唯一 1 处纯数字对比分离屏 (以前 30%/70% vs 现在 50%/50% — 每行<=4字，四周宽裕留白!)
-        ("LEFT",   "侧边原生文字_左", "以前录取\n文化 30%\n专业 70%", -0.48, -0.04, 16.0, ds1_st, ds1_ed, TextIntro.打字机_I),
-        ("RIGHT",  "侧边原生文字_右", "现在录取\n文化 50%\n专业 50%",  0.48, -0.04, 16.0, cue_st("但现在基本没有了", 49.59), ds1_ed, TextIntro.向上弹入),
-        ("CENTER", "侧边原生文字_右", chapter_windows[1][2], 0.00, -0.04, 20.0, chapter_windows[1][0], chapter_windows[1][1], TextIntro.开幕),
-        ("CENTER", "侧边原生文字_右", chapter_windows[2][2], 0.00, -0.04, 20.0, chapter_windows[2][0], chapter_windows[2][1], TextIntro.开幕),
-        # 平时周末极简 3 行节奏提示 (仅 12.5pt 靠左安全留白，右侧配高一规划图!)
-        ("LEFT",   "侧边原生文字_左", "周末节奏\n每周1-2天\n每天40分钟", -0.52, 0.10, 12.5, wk_st, wk_ed, TextIntro.向下露出),
+    # STAGGERED ONE-LINE-AT-A-TIME REVEALS (modeled directly on 380-450 & 1115新高一 real edits!):
+    # Every bullet / row enters RIGHT WHEN SPOKEN with `打字机_I` / `左移弹动`, stays stacked, and exits together!
+    # Format: (group_id, zone, track_name, label, x, y, font_size, color, start_us, end_us, anim, anim_dur)
+    staggered_text_plan: list[tuple[str, str, str, str, float, float, float, tuple[float, float, float], int, int, TextIntro, str]] = [
+        # --- 章节呼吸条 #1 (两拍错层出现: 先出 01，0.45s后打字机出副标) ---
+        ("ch1", "CENTER", "逐条罗列_行1", "01",               0.00,  0.07, 22.0, COLOR_WHITE,  chapter_windows[0][0],           chapter_windows[0][1], TextIntro.向上弹入, "0.28s"),
+        ("ch1", "CENTER", "逐条罗列_行2", "文化课直接上强度", 0.00, -0.11, 20.0, COLOR_YELLOW, chapter_windows[0][0] + 420_000, chapter_windows[0][1], TextIntro.打字机_I, "0.45s"),
+
+        # --- 纯数字对比分离屏 (44.88-52.32s): 6条逐条罗列，说到哪条弹哪条，最后齐退! ---
+        ("ds1_l", "LEFT",  "逐条罗列_行1",   "以前录取",  -0.48,  0.12, 16.0, COLOR_WHITE,  ds1_st,                                     ds1_ed, TextIntro.向上弹入, "0.30s"),
+        ("ds1_l", "LEFT",  "逐条罗列_行2",   "文化 30%",  -0.48, -0.05, 16.0, COLOR_YELLOW, cue_st("三分文化", 47.27),                   ds1_ed, TextIntro.左移弹动, "0.35s"),
+        ("ds1_l", "LEFT",  "逐条罗列_行3",   "专业 70%",  -0.48, -0.22, 16.0, COLOR_YELLOW, cue_st("三分文化", 47.27) + 580_000,         ds1_ed, TextIntro.左移弹动, "0.35s"),
+        ("ds1_r", "RIGHT", "逐条罗列_右行1", "现在录取",   0.48,  0.12, 16.0, COLOR_WHITE,  cue_st("但现在基本没有了", 49.59),            ds1_ed, TextIntro.向上弹入, "0.30s"),
+        ("ds1_r", "RIGHT", "逐条罗列_右行2", "文化 50%",   0.48, -0.05, 16.0, COLOR_YELLOW, cue_st("大部分录取", 50.55) + 350_000,        ds1_ed, TextIntro.左移弹动, "0.35s"),
+        ("ds1_r", "RIGHT", "逐条罗列_右行3", "专业 50%",   0.48, -0.22, 16.0, COLOR_YELLOW, cue_st("大部分录取", 50.55) + 850_000,        ds1_ed, TextIntro.左移弹动, "0.35s"),
+
+        # --- 章节呼吸条 #2 (两拍错层出现) ---
+        ("ch2", "CENTER", "逐条罗列_行1", "02",             0.00,  0.07, 22.0, COLOR_WHITE,  chapter_windows[1][0],           chapter_windows[1][1], TextIntro.向上弹入, "0.28s"),
+        ("ch2", "CENTER", "逐条罗列_行2", "老师快 难随大流", 0.00, -0.11, 20.0, COLOR_YELLOW, chapter_windows[1][0] + 420_000, chapter_windows[1][1], TextIntro.打字机_I, "0.45s"),
+
+        # --- 章节呼吸条 #3 (两拍错层出现) ---
+        ("ch3", "CENTER", "逐条罗列_行1", "03",             0.00,  0.07, 22.0, COLOR_WHITE,  chapter_windows[2][0],           chapter_windows[2][1], TextIntro.向上弹入, "0.28s"),
+        ("ch3", "CENTER", "逐条罗列_行2", "兴趣≠应试书法",  0.00, -0.11, 20.0, COLOR_YELLOW, chapter_windows[2][0] + 420_000, chapter_windows[2][1], TextIntro.打字机_I, "0.45s"),
+
+        # --- 应试书法考什么 (148.16-154.76s): 左侧 4 行逐条打字机罗列，右侧同步亮真卷，绝不堆字! ---
+        ("exam_l", "LEFT", "逐条罗列_行1", "应试考什么",  -0.52,  0.22, 14.0, COLOR_WHITE,  ex_hdr_st, ex_end, TextIntro.向上弹入, "0.30s"),
+        ("exam_l", "LEFT", "逐条罗列_行2", "① 碑帖精准",  -0.52,  0.07, 13.5, COLOR_YELLOW, ex_pt1_st, ex_end, TextIntro.打字机_I, "0.45s"),
+        ("exam_l", "LEFT", "逐条罗列_行3", "② 多体切换",  -0.52, -0.08, 13.5, COLOR_YELLOW, ex_pt2_st, ex_end, TextIntro.打字机_I, "0.45s"),
+        ("exam_l", "LEFT", "逐条罗列_行4", "③ 繁篆积累",  -0.52, -0.23, 13.5, COLOR_YELLOW, ex_pt3_st, ex_end, TextIntro.打字机_I, "0.45s"),
+
+        # --- 兴趣班误区 (155.83-159.70s): 左侧清空，右侧 3 行逐条打字机罗列，疏朗透气! ---
+        ("hobby_r", "RIGHT", "逐条罗列_右行1", "兴趣班误区",  0.52,  0.18, 14.0, COLOR_WHITE,  hb_hdr_st, hb_end, TextIntro.向上弹入, "0.30s"),
+        ("hobby_r", "RIGHT", "逐条罗列_右行2", "抄几幅作品",  0.52,  0.02, 13.5, COLOR_YELLOW, hb_pt1_st, hb_end, TextIntro.打字机_I, "0.45s"),
+        ("hobby_r", "RIGHT", "逐条罗列_右行3", "拿比赛奖状",  0.52, -0.14, 13.5, COLOR_YELLOW, hb_pt2_st, hb_end, TextIntro.打字机_I, "0.45s"),
+
+        # --- 平时周末怎么挤 (178.24-184.88s): 左侧 3 行逐条打字机罗列 + 右侧高一规划图! ---
+        ("wk_l", "LEFT", "逐条罗列_行1", "周末怎么挤",  -0.52,  0.22, 14.0, COLOR_WHITE,  wk_st, wk_ed, TextIntro.向上弹入, "0.30s"),
+        ("wk_l", "LEFT", "逐条罗列_行2", "每周 1~2 天", -0.52,  0.06, 13.5, COLOR_YELLOW, wk_p1, wk_ed, TextIntro.打字机_I, "0.45s"),
+        ("wk_l", "LEFT", "逐条罗列_行3", "每天 40 分钟", -0.52, -0.10, 13.5, COLOR_YELLOW, wk_p2, wk_ed, TextIntro.打字机_I, "0.45s"),
     ]
 
-    # Hard in-script 2D space-time collision gate + >=1.4s no-flash-cut gate!
+    # Hard in-script 2D space-time collision gate (checks group bounding spans vs PiPs & other groups!)
     zone_items: dict[str, list[tuple[int, int, str]]] = {"LEFT": [], "CENTER": [], "RIGHT": []}
     for z, _, p, _, _, _, st, ed, _, _ in pip_plan:
         assert ed - st >= 1_400_000, f"Flash-cut PiP <1.4s: {p.name} ({(ed-st)/1e6:.2f}s)"
         zone_items[z].append((st, ed, f"PiP:{p.name}"))
-    for z, _, lbl, _, _, _, st, ed, _ in side_text_plan:
-        assert ed - st >= 1_400_000, f"Flash-cut side text <1.4s: {lbl} ({(ed-st)/1e6:.2f}s)"
-        zone_items[z].append((st, ed, f"TEXT:{lbl.splitlines()[0]}"))
+    # Collapse each staggered group to its outer [min_st, max_ed] window in its zone
+    group_bounds: dict[tuple[str, str], list[int]] = {}
+    for gid, z, _, lbl, _, _, _, _, st, ed, _, _ in staggered_text_plan:
+        assert ed - st >= 800_000, f"Too-short staggered row <0.8s: {lbl} ({(ed-st)/1e6:.2f}s)"
+        key = (gid, z)
+        if key not in group_bounds:
+            group_bounds[key] = [st, ed]
+        else:
+            group_bounds[key][0] = min(group_bounds[key][0], st)
+            group_bounds[key][1] = max(group_bounds[key][1], ed)
+    for (gid, z), (gst, ged) in group_bounds.items():
+        zone_items[z].append((gst, ged, f"GROUP:{gid}"))
     for z, lst in zone_items.items():
         lst.sort(key=lambda x: x[0])
         for (a0, a1, an), (b0, b1, bn) in zip(lst, lst[1:]):
@@ -1752,26 +1802,26 @@ def main() -> int:
         if sfx_p is not None:
             sfx_events.append((st, sfx_p, 1.0))
         pip_count += 1
-    print(f"[pip] added {pip_count} collision-free fresh PiPs (including 4 real mock-exam calligraphy sheets!)")
+    print(f"[pip] added {pip_count} collision-free fresh PiPs (including real mock-exam calligraphy sheets!)")
 
     side_added = 0
-    for z, tname, label, sx, sy, ssz, st, ed, anim in side_text_plan:
+    for gid, z, tname, label, sx, sy, ssz, scol, st, ed, anim, adur in staggered_text_plan:
         dur_us = min(ed, total_tl_us) - st
-        if dur_us < 1_000_000:
+        if dur_us < 700_000:
             continue
         sseg = TextSegment(
             label,
             Timerange(st, dur_us),
             font=FontType.仓耳丰黑,
-            style=TextStyle(size=ssz, color=COLOR_YELLOW, align=1, bold=False, line_spacing=8),
+            style=TextStyle(size=ssz, color=scol, align=1, bold=False, line_spacing=6),
             clip_settings=ClipSettings(transform_x=sx, transform_y=sy, scale_x=1.0, scale_y=1.0),
             border=None,
             shadow=TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0),
         )
-        sseg.add_animation(anim, "0.32s")
+        sseg.add_animation(anim, adur)
         script.add_segment(sseg, tname)
         side_added += 1
-    print(f"[side-text] added {side_added} clean minimalist native callouts & chapter breaths")
+    print(f"[staggered-lists] added {side_added} staggered one-row-at-a-time text reveals across {len(group_bounds)} groups")
 
     # 9b. 3 restrained `暗角` focus accents
     vignette_ranges: list[tuple[int, int]] = []
