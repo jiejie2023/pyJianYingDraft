@@ -49,6 +49,7 @@ from pyJianYingDraft import (
     TrackSpec,
     TrackType,
     VideoMaterial,
+    VideoSceneEffectType,
     VideoSegment,
 )
 
@@ -56,10 +57,16 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v8"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v9"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
+CAA_GATE_PATH = Path(
+    r"D:\Jiely Life\projects\海晞文化-内容助理\02_resources\书法海海知识库\01_IP知识库\02_IP图片\03_风景场所\20260707_中国美术学院校门，绿植覆盖的楼体与“大脑花园”活动海报.JPG"
+)
+CAFA_GATE_PATH = Path(
+    r"D:\Jiely Life\projects\海晞文化-内容助理\02_resources\书法海海知识库\03_一鱼九吃库\00_一鱼九吃\02_待洗稿\01_高考\V20260916-04_高一抢跑书法专业\01_公众号\素材\06_中央美术学院.jpg"
+)
 LINEAR_MASK_CACHE_PATH = (
     "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
     "82432976/4c6a0ef5de6a844342d40330e00c59eb"
@@ -70,6 +77,11 @@ CIRCLE_MASK_CACHE_PATH = (
     "82432977/3ab1c47350d987c8ad415497e020a38b"
 )
 CIRCLE_MASK_RESOURCE_ID = "7356934080102928946"
+BLUR_EFFECT_CACHE_PATH = (
+    "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
+    "7399495140399746304/abb0b0e8472b73a42e796086c708d216"
+)
+BLUR_EFFECT_RESOURCE_ID = "7399495140399746304"
 VIGNETTE_EFFECT_CACHE_PATH = (
     "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
     "7399495012515433728/ef7abad9671e2f3da7993b7673ece5fc"
@@ -682,7 +694,7 @@ def patch_draft_postprocess(
                         "aspectRatio": 1.0,
                         "centerX": 0.0,
                         "centerY": 0.14,
-                        "feather": 0.03,
+                        "feather": 0.1732,  # Exact user hand-tuned soft circular feather from v8!
                         "height": 0.435,
                         "invert": False,
                         "rotation": 0.0,
@@ -732,7 +744,21 @@ def patch_draft_postprocess(
                 seg.setdefault("extra_material_refs", []).append(mask_id)
                 top_shadow_masks += 1
 
-    # 2. Inject restrained TL0 `暗角` video effect track (non-gimmicky, manual-edit taste)
+    # 2. Patch segment-level `模糊` video effects on Track 0 to verified local 11.8 cache & apply_target_type=0
+    #    (STRICTLY main-video-only so Track 0 blur NEVER bleeds onto semi-transparent black bars or circular speaker PiP!)
+    patched_blurs = 0
+    for ve in vfx_list:
+        if ve.get("name") == "模糊":
+            ve["apply_target_type"] = 0
+            ve["resource_id"] = BLUR_EFFECT_RESOURCE_ID
+            ve["effect_id"] = BLUR_EFFECT_RESOURCE_ID
+            ve["path"] = BLUR_EFFECT_CACHE_PATH
+            ve["category_id"] = "39654"
+            ve["category_name"] = "热门"
+            ve["source_platform"] = 1
+            patched_blurs += 1
+
+    # 2b. Inject restrained TL0 `暗角` video effect track (non-gimmicky, manual-edit taste)
     vignette_added = 0
     if vignette_ranges:
         eff_segments: list[dict[str, Any]] = []
@@ -844,7 +870,7 @@ def patch_draft_postprocess(
 
     print(
         f"[patch] beauty preset attached to {beauty_clips} main clips (+{circle_pip_masks} circular PiP clips, {beauty_refs_total} effect refs); "
-        f"linear masks={top_shadow_masks}, restrained vignettes={vignette_added}; "
+        f"linear masks={top_shadow_masks}, main-only segment blurs={patched_blurs}, restrained vignettes={vignette_added}; "
         f"verified local fonts injected on {patched_fonts} text materials"
     )
 
@@ -933,6 +959,8 @@ def main() -> int:
     sfx_stamp = copy_asset(DRAFT1_AUDIO_DIR / "f2c28329e88e189b89fa16f59fc65464.mp3", asset_aud_dir, "sfx_stamp.mp3")
     sfx_page = copy_asset(DRAFT1_AUDIO_DIR / "bcebdd78f3173216cb1aaae12f7dd291.mp3", asset_aud_dir, "sfx_page.mp3")
 
+    img_caa_gate = copy_asset(CAA_GATE_PATH, asset_img_dir, "00_中国美术学院校门头.jpg")
+    img_cafa_gate = copy_asset(CAFA_GATE_PATH, asset_img_dir, "00_中央美术学院校门头.jpg")
     img_gm_2nd = copy_asset(
         PROOF_GAOSAN_DIR / "008_展示一名书法考生从复读到国美全国第二的录取成果，含分数、名次及录取喜报.jpg",
         asset_img_dir,
@@ -1060,8 +1088,16 @@ def main() -> int:
 
     img_black_field = copy_asset(BLACK_FIELD_PATH, asset_img_dir, "top_shadow_black.png")
 
-    # 4. Declare tracks in clean z-order (video -> full-screen B-roll -> circular speaker PiP -> PiP -> top gradient shadow -> text -> audio)
+    # 4. Declare tracks in clean z-order:
+    #    Track 0: Main video (carries segment-level main-only blur on chapter/data windows!)
+    #    Track 1: Chapter & data dark backdrop (crisp black bars/veils — NEVER affected by Track 0 blur!)
+    #    Track 2: Full-screen credential B-roll
+    #    Track 3: Circular crisp speaker PiP (NEVER affected by Track 0 blur!)
+    #    Track 4-6: Left/Center/Right PiP images
+    #    Track 7: Top gradient shadow (black field + linear mask, auto-cut around B-roll & chapter dividers)
+    #    Track 8-13: Text tracks
     script.append_track(TrackSpec(TrackType.video, name="主视频_1.3x粗剪"))
+    script.append_track(TrackSpec(TrackType.video, name="章节与数据暗底_黑场"))
     script.append_track(TrackSpec(TrackType.video, name="全屏背书_Broll"))
     script.append_track(TrackSpec(TrackType.video, name="圆形画中画_海老师"))
     script.append_track(TrackSpec(TrackType.video, name="画中画_左"))
@@ -1079,38 +1115,135 @@ def main() -> int:
     script.append_track(TrackSpec(TrackType.audio, name="BGM_古筝轻音乐"))
     script.append_track(TrackSpec(TrackType.audio, name="音效点缀"))
 
+    # Helper to look up cue boundaries cleanly
+    def cue_st(kw: str, fallback_s: float) -> int:
+        hit = find_cue_range(cues, kw)
+        return hit[0] if hit else sec_to_us(fallback_s)
+
+    # Define the 3 chapter-divider windows (user v8 exact style: Track-0-only blur + crisp black bar + centered 25pt title)
+    # and the 2 data-separation windows (Track-0-only blur + dark veil + circular crisp speaker PiP + clean data)
+    chapter_windows: list[tuple[int, int, str]] = [
+        (81_170_000, 83_670_000, "高一阶段\n文化+打底"),
+        (93_530_000, 96_770_000, "高二阶段\n抢跑篆刻"),
+        (119_330_000, 123_070_000, "高三阶段\n真题+冲文化"),
+    ]
+    data_sep_windows: list[tuple[int, int, float, float, float]] = [
+        # (start_us, end_us, blur_pct, veil_alpha, speaker_y)
+        (cue_st("浙江省490", 55.93), 65_500_000, 45.0, 0.42, 0.34),
+        (103_900_000, 111_850_000, 42.0, 0.38, 0.36),
+    ]
+    blur_windows: list[tuple[int, int, float]] = [
+        (st, ed, 50.0) for st, ed, _ in chapter_windows
+    ] + [
+        (st, ed, bp) for st, ed, bp, _, _ in data_sep_windows
+    ]
+    blur_boundaries = sorted(set(t for st, ed, _ in blur_windows for t in (st, ed)))
+
+    def blur_strength_for(mid_us: int) -> float | None:
+        for st, ed, bp in blur_windows:
+            if st <= mid_us <= ed:
+                return bp
+        return None
+
     # 5. Stage 1 + 2: Add main rough-cut video track at 1.3x speed & +10 dB voice gain
-    #    (17-item Haixi beauty preset is injected per-clip in patch_draft_postprocess)
-    #    Opening 3-second hook: smooth live push-in keyframe (1.00 -> 1.08) across the first clips!
-    for clip_idx, clip in enumerate(clips):
-        src_tr = Timerange(sec_to_us(clip.src_start), sec_to_us(clip.src_end - clip.src_start))
-        tgt_tr = Timerange(clip.tl_start_us, clip.tl_dur_us)
-        vseg = VideoSegment(
-            raw_mat,
-            tgt_tr,
-            source_timerange=src_tr,
-            speed=PLAYBACK_SPEED,
-            volume=VOICE_VOLUME,
-            clip_settings=ClipSettings(
-                scale_x=clip.scale,
-                scale_y=clip.scale,
-                transform_y=clip.transform_y,
-            ),
+    #    - Cleanly split clips at blur_boundaries so segment-level `模糊` (apply_target_type=0)
+    #      starts/ends frame-accurately on Track 0 ONLY (ZERO blur bleed onto black bars or circular PiP!)
+    #    - Opening 0-4.2s smooth push-in keyframe (1.00 -> 1.08)
+    for clip in clips:
+        c_st = clip.tl_start_us
+        c_ed = clip.tl_start_us + clip.tl_dur_us
+        cuts = [c_st] + [b for b in blur_boundaries if c_st + 40_000 < b < c_ed - 40_000] + [c_ed]
+        for sub_st, sub_ed in zip(cuts, cuts[1:]):
+            sub_dur = sub_ed - sub_st
+            if sub_dur < 30_000:
+                continue
+            tl_off = sub_st - c_st
+            src_off = round(tl_off * PLAYBACK_SPEED)
+            src_sub_dur = round(sub_dur * PLAYBACK_SPEED)
+            src_tr = Timerange(sec_to_us(clip.src_start) + src_off, src_sub_dur)
+            tgt_tr = Timerange(sub_st, sub_dur)
+            vseg = VideoSegment(
+                raw_mat,
+                tgt_tr,
+                source_timerange=src_tr,
+                speed=PLAYBACK_SPEED,
+                volume=VOICE_VOLUME,
+                clip_settings=ClipSettings(
+                    scale_x=clip.scale,
+                    scale_y=clip.scale,
+                    transform_y=clip.transform_y,
+                ),
+            )
+            if sub_st < 4_200_000 and sub_dur >= 400_000:
+                p0 = min(1.0, sub_st / 4_200_000.0)
+                p1 = min(1.0, sub_ed / 4_200_000.0)
+                sc0 = round(1.00 + 0.08 * p0, 4)
+                sc1 = round(1.00 + 0.08 * p1, 4)
+                vseg.add_keyframe(KeyframeProperty.scale_x, 0, sc0)
+                vseg.add_keyframe(KeyframeProperty.scale_x, sub_dur, sc1)
+                vseg.add_keyframe(KeyframeProperty.scale_y, 0, sc0)
+                vseg.add_keyframe(KeyframeProperty.scale_y, sub_dur, sc1)
+            bp = blur_strength_for((sub_st + sub_ed) // 2)
+            if bp is not None:
+                vseg.add_effect(VideoSceneEffectType.模糊, params=[bp])
+            script.add_segment(vseg, "主视频_1.3x粗剪")
+
+    # Helper to add muted circular crisp speaker PiP clips on `圆形画中画_海老师` for any [win_st, win_ed]
+    def add_circular_speaker_pip(win_st: int, win_ed: int, px: float, py: float, pscale: float) -> int:
+        added = 0
+        for clip in clips:
+            ov_st = max(clip.tl_start_us, win_st)
+            ov_ed = min(clip.tl_start_us + clip.tl_dur_us, win_ed)
+            if ov_ed - ov_st < 80_000:
+                continue
+            tl_off_us = ov_st - clip.tl_start_us
+            src_off_us = round(tl_off_us * PLAYBACK_SPEED)
+            src_sub_dur = round((ov_ed - ov_st) * PLAYBACK_SPEED)
+            src_tr = Timerange(sec_to_us(clip.src_start) + src_off_us, src_sub_dur)
+            tgt_tr = Timerange(ov_st, ov_ed - ov_st)
+            cseg = VideoSegment(
+                raw_mat,
+                tgt_tr,
+                source_timerange=src_tr,
+                speed=PLAYBACK_SPEED,
+                volume=0.0,  # Muted — Track 0 carries +10 dB audio!
+                clip_settings=ClipSettings(transform_x=px, transform_y=py, scale_x=pscale, scale_y=pscale),
+            )
+            script.add_segment(cseg, "圆形画中画_海老师")
+            added += 1
+        return added
+
+    # 5a. Add crisp semi-transparent black bars (chapter dividers) & dark veils (data screens) on Track 1
+    #     Because blur is segment-level on Track 0 ONLY, these bars stay 100% crisp and unblurred!
+    black_mat = VideoMaterial(str(img_black_field), material_name="黑场")
+    for ch_st, ch_ed, _ in chapter_windows:
+        bar_seg = VideoSegment(
+            black_mat,
+            Timerange(ch_st, ch_ed - ch_st),
+            # Exact user hand-tuned horizontal dark banner from v8 Track 8!
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=-0.069, scale_x=1.0, scale_y=0.827, alpha=0.50),
         )
-        # Opening 0-4.2s smooth push-in keyframe so the hook feels immediately alive
-        if clip.tl_start_us < 4_200_000 and clip.tl_dur_us >= 400_000:
-            p0 = min(1.0, clip.tl_start_us / 4_200_000.0)
-            p1 = min(1.0, (clip.tl_start_us + clip.tl_dur_us) / 4_200_000.0)
-            sc0 = round(1.00 + 0.08 * p0, 4)
-            sc1 = round(1.00 + 0.08 * p1, 4)
-            vseg.add_keyframe(KeyframeProperty.scale_x, 0, sc0)
-            vseg.add_keyframe(KeyframeProperty.scale_x, clip.tl_dur_us, sc1)
-            vseg.add_keyframe(KeyframeProperty.scale_y, 0, sc0)
-            vseg.add_keyframe(KeyframeProperty.scale_y, clip.tl_dur_us, sc1)
-        script.add_segment(vseg, "主视频_1.3x粗剪")
+        bar_seg.add_animation(IntroType.渐显, "0.25s")
+        bar_seg.add_animation(OutroType.渐隐, "0.22s")
+        script.add_segment(bar_seg, "章节与数据暗底_黑场")
+
+    data_cpip_total = 0
+    for ds_st, ds_ed, _, veil_alpha, sp_y in data_sep_windows:
+        veil_seg = VideoSegment(
+            black_mat,
+            Timerange(ds_st, ds_ed - ds_st),
+            # Full-frame subtle dark veil so yellow data pops cleanly off blurred background
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=0.0, scale_x=2.4, scale_y=2.4, alpha=veil_alpha),
+        )
+        veil_seg.add_animation(IntroType.渐显, "0.25s")
+        veil_seg.add_animation(OutroType.渐隐, "0.25s")
+        script.add_segment(veil_seg, "章节与数据暗底_黑场")
+        # Separate clear circular speaker PiP cleanly below top title & above data!
+        data_cpip_total += add_circular_speaker_pip(ds_st, ds_ed, px=0.0, py=sp_y, pscale=0.40)
+    print(f"[chapter+data] added 3 crisp blurred-bg chapter dividers + 2 data-separated screens ({data_cpip_total} circular speaker clips)")
 
     # 5b. Full-screen credential B-roll + circular muted speaker PiP during "中国美术学院书法专业，从本科读到硕士一共七年"
-    #     Modeled after manual-edited TL0 (`380-450`): breaks talking-head monotony while keeping speaker present!
+    #     Uses user's exact v8 hand-tuned top-right circular PiP placement (x=0.523, y=0.580, scale=0.50, feather=0.173)!
     broll_hit_start = find_cue_range(cues, "中国美术学院")
     broll_hit_end = find_cue_range(cues, "一共七年")
     broll_window: tuple[int, int] | None = None
@@ -1119,13 +1252,12 @@ def main() -> int:
         b_ed = broll_hit_end[1]
         b_dur = b_ed - b_st
         broll_window = (b_st, b_ed)
-        # Split into 3 clean credential photos with subtle Ken Burns scale keyframe (1.02 -> 1.08)
         d1 = round(b_dur * 0.34)
         d2 = round(b_dur * 0.31)
         d3 = b_dur - d1 - d2
         broll_photos = [
             (img_haixi_609, b_st, d1, 1.04, 1.10, 0.02),
-            (img_gm_diploma, b_st + d1, d2, 1.48, 1.56, 0.00),  # 4:3 landscape fills 3:4 nicely at ~1.48
+            (img_gm_diploma, b_st + d1, d2, 1.48, 1.56, 0.00),
             (img_gm_master, b_st + d1 + d2, d3, 1.15, 1.22, -0.02),
         ]
         for bimg, pst, pdur, sc0, sc1, by in broll_photos:
@@ -1141,36 +1273,26 @@ def main() -> int:
             bseg.add_keyframe(KeyframeProperty.scale_y, pdur, sc1)
             script.add_segment(bseg, "全屏背书_Broll")
 
-        # Overlay circular muted speaker PiP (clips overlapping [b_st, b_ed]) in bottom-right corner
-        for clip in clips:
-            ov_st = max(clip.tl_start_us, b_st)
-            ov_ed = min(clip.tl_start_us + clip.tl_dur_us, b_ed)
-            if ov_ed - ov_st < 80_000:
-                continue
-            tl_off_us = ov_st - clip.tl_start_us
-            src_off_us = round(tl_off_us * PLAYBACK_SPEED)
-            src_sub_dur = round((ov_ed - ov_st) * PLAYBACK_SPEED)
-            src_tr = Timerange(sec_to_us(clip.src_start) + src_off_us, src_sub_dur)
-            tgt_tr = Timerange(ov_st, ov_ed - ov_st)
-            cseg = VideoSegment(
-                raw_mat,
-                tgt_tr,
-                source_timerange=src_tr,
-                speed=PLAYBACK_SPEED,
-                volume=0.0,  # Muted — main track carries +10 dB audio!
-                clip_settings=ClipSettings(transform_x=0.60, transform_y=-0.16, scale_x=0.42, scale_y=0.42),
-            )
-            script.add_segment(cseg, "圆形画中画_海老师")
-        print(f"[broll] added 3 full-screen 国美 credential photos + circular speaker PiP ({b_st/1e6:.2f}s-{b_ed/1e6:.2f}s)")
+        add_circular_speaker_pip(b_st, b_ed, px=0.523, py=0.580, pscale=0.50)
+        print(f"[broll] added 3 full-screen 国美 credential photos + v8 top-right circular PiP ({b_st/1e6:.2f}s-{b_ed/1e6:.2f}s)")
 
     # 6. Add top-title dark gradient shadow layer (黑场 + 线性蒙版 100% 羽化) & top two-line title
-    #    Smartly split around full-screen B-roll window so top title never covers graduation photos!
-    top_spans = (
-        [(0, broll_window[0]), (broll_window[1], total_tl_us)]
-        if broll_window is not None and broll_window[0] > 500_000
-        else [(0, total_tl_us)]
-    )
-    black_mat = VideoMaterial(str(img_black_field), material_name="黑场")
+    #    Smartly cut out around full-screen B-roll AND all 3 chapter dividers (matching user's v8 cutout!)
+    cutout_windows: list[tuple[int, int]] = []
+    if broll_window is not None:
+        cutout_windows.append(broll_window)
+    for ch_st, ch_ed, _ in chapter_windows:
+        cutout_windows.append((ch_st, ch_ed))
+    cutout_windows.sort()
+    top_spans: list[tuple[int, int]] = []
+    cur_t = 0
+    for cw_st, cw_ed in cutout_windows:
+        if cw_st > cur_t + 300_000:
+            top_spans.append((cur_t, cw_st))
+        cur_t = max(cur_t, cw_ed)
+    if total_tl_us > cur_t + 300_000:
+        top_spans.append((cur_t, total_tl_us))
+
     title_shadow = TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
     for span_idx, (sp_st, sp_ed) in enumerate(top_spans):
         sp_dur = sp_ed - sp_st
@@ -1303,46 +1425,36 @@ def main() -> int:
     #         IRON RULE: At any instant t, LEFT / CENTER / RIGHT zone may hold AT MOST ONE item
     #         (either a PiP image OR a native side text, NEVER both stacked on top of each other!).
     #         And all PiPs sit at y=+0.08..+0.14 with plenty of headroom above subtitles (y=-0.49/-0.56).
-    def cue_st(kw: str, fallback_s: float) -> int:
-        hit = find_cue_range(cues, kw)
-        return hit[0] if hit else sec_to_us(fallback_s)
-
-    def cue_ed(kw: str, fallback_s: float) -> int:
-        hit = find_cue_range(cues, kw)
-        return hit[1] if hit else sec_to_us(fallback_s)
-
     # Scheduled real PiP items: (zone, track_name, img_path, x, y, scale, start_us, end_us, anim, sfx_or_None)
     pip_plan: list[tuple[str, str, Path, float, float, float, int, int, IntroType, Path | None]] = [
-        # --- 黄金前3秒开场王炸背书 (0.30s-2.20s): 1秒内看到真国美全国第二 + 真央美录取通知书 ---
-        ("LEFT",  "画中画_左", img_gm_2nd,         -0.63, 0.08, 0.33, 300_000,   2_200_000, IntroType.向右滑动, sfx_whoosh),
-        ("RIGHT", "画中画_右", img_ym_notice,       0.63, 0.08, 0.33, 450_000,   2_200_000, IntroType.向左滑动, None),
+        # --- 黄金前3秒开场校门头 (0.30s-2.20s): 国美校门头 + 央美校门头（绝不与后文喜报/通知书重复！） ---
+        ("LEFT",  "画中画_左", img_caa_gate,       -0.58, 0.08, 0.38, 300_000,   2_200_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT", "画中画_右", img_cafa_gate,       0.58, 0.08, 0.38, 450_000,   2_200_000, IntroType.向左滑动, None),
 
-        # --- 成果背书段 (18.7s-23.6s): 国美/央美 -> 省统考第1/3/7一字排开不压字幕 ---
-        ("LEFT",   "画中画_左", img_gm_xibao,       -0.63, 0.08, 0.33, 18_700_000, 20_600_000, IntroType.向右滑动, sfx_whoosh),
+        # --- 成果背书段 (18.7s-23.6s): 国美全国第二/喜报 + 央美打码录取通知书 -> 省统考第1/3/7 ---
+        ("LEFT",   "画中画_左", img_gm_2nd,         -0.63, 0.08, 0.33, 18_700_000, 20_600_000, IntroType.向右滑动, sfx_whoosh),
         ("RIGHT",  "画中画_右", img_ym_notice,       0.63, 0.08, 0.33, 18_950_000, 20_600_000, IntroType.向左滑动, None),
         ("LEFT",   "画中画_左", img_rank1,          -0.64, 0.14, 0.30, 20_800_000, 23_600_000, IntroType.向上滑动, sfx_page),
         ("CENTER", "画中画_中", img_rank3,           0.00, 0.16, 0.28, 21_400_000, 23_600_000, IntroType.向上滑动, None),
         ("RIGHT",  "画中画_右", img_rank7,           0.64, 0.14, 0.30, 21_400_000, 23_600_000, IntroType.向上滑动, None),
 
-        # --- 高一规划打底段 (83.8s-91.2s): 严格在「高一阶段」文字退场后切入，零重叠 ---
-        ("LEFT",  "画中画_左", img_plan_g1,         -0.62, 0.08, 0.34, 83_800_000, 87_300_000, IntroType.向右滑动, sfx_page),
+        # --- 高一规划打底段 (83.8s-91.2s): 严格在「高一阶段」章节分段退场后切入，零重叠 ---
+        ("LEFT",  "画中画_左", img_plan_g1,         -0.62, 0.08, 0.34, 83_850_000, 87_300_000, IntroType.向右滑动, sfx_page),
         ("RIGHT", "画中画_右", img_online_class,     0.62, 0.08, 0.34, 84_100_000, 87_300_000, IntroType.向左滑动, None),
         ("LEFT",  "画中画_左", img_1v1,             -0.62, 0.08, 0.35, 87_500_000, 91_200_000, IntroType.向右滑动, sfx_whoosh),
         ("RIGHT", "画中画_右", img_g1_lishu_prog,    0.62, 0.08, 0.34, 87_800_000, 91_200_000, IntroType.向左滑动, None),
 
-        # --- 高二篆刻抢跑段 (97.2s-103.7s): 严格在「高二阶段」文字退场后切入，零重叠 ---
+        # --- 高二篆刻抢跑段 (97.2s-103.7s): 严格在「高二阶段」章节分段退场后切入，零重叠 ---
         ("LEFT",  "画中画_左", img_g2_zhuanke_20d,  -0.61, 0.08, 0.36, cue_st("尽早接触", 97.21),   101_000_000, IntroType.向右滑动, sfx_whoosh),
         ("RIGHT", "画中画_右", img_zk_compare_1002,  0.61, 0.08, 0.36, cue_st("大半的分数", 101.23), 103_700_000, IntroType.向左滑动, sfx_page),
 
-        # --- 国美 vs 央美科目分值段 (103.9s-116.5s): 严格「左文右图」错位，绝不叠字！ ---
-        # 国美段: 左=国美校考原生文字, 右=古汉语100分课表 (105.6s-107.85s)
-        ("RIGHT", "画中画_右", img_guhanyu_100,      0.62, 0.08, 0.34, 105_500_000, 107_850_000, IntroType.向左滑动, sfx_drop),
-        # 央美段: 左=央美校考原生文字, 右=线上篆刻多组对比 (108.1s-111.85s)
-        ("RIGHT", "画中画_右", img_zk_compare_1007,  0.62, 0.08, 0.35, 108_100_000, 111_850_000, IntroType.向左滑动, sfx_page),
+        # --- 国美 vs 央美科目分值数据分离段 (103.9s-111.85s): 上方圆形清晰人物 + 左文右图错位，零叠字 ---
+        ("RIGHT", "画中画_右", img_guhanyu_100,      0.54, -0.10, 0.34, 105_500_000, 107_850_000, IntroType.向左滑动, sfx_drop),
+        ("RIGHT", "画中画_右", img_zk_compare_1007,  0.54, -0.10, 0.34, 108_100_000, 111_850_000, IntroType.向左滑动, sfx_page),
         # 补课提醒段: 左/右无文字, 展示央美篆刻92分全国最高喜报 (112.2s-116.5s)
         ("LEFT",  "画中画_左", img_ym_zhuanke,      -0.62, 0.08, 0.35, 112_200_000, 116_500_000, IntroType.向右滑动, sfx_drop),
 
-        # --- 高三冲刺与真题段 (128.1s-137.0s): 严格在「高三阶段」文字退场后切入 ---
+        # --- 高三冲刺与真题段 (128.1s-137.0s): 严格在「高三阶段」章节分段退场后切入 ---
         ("LEFT",  "画中画_左", img_xiaokao_plan,    -0.62, 0.08, 0.35, cue_st("校考之前", 128.07), 132_000_000, IntroType.向右滑动, sfx_whoosh),
         ("RIGHT", "画中画_右", img_xiaokao_subjects, 0.62, 0.08, 0.35, 132_400_000,                137_000_000, IntroType.向左滑动, sfx_page),
 
@@ -1355,20 +1467,20 @@ def main() -> int:
         ("RIGHT", "画中画_右", img_duxue_14,         0.62, 0.10, 0.34, 157_500_000, total_tl_us, IntroType.向左滑动, None),
     ]
 
-    # Scheduled native JianYing animated side text callouts (ZERO zone overlap with any PiP!)
+    # Scheduled native JianYing animated data callouts + 3 user-tuned centered 25pt chapter dividers!
     # Format: (zone, track_name, label, x, y, font_size, start_us, end_us, anim)
     side_text_plan: list[tuple[str, str, str, float, float, float, int, int, TextIntro]] = [
-        # 南北各省本科线对比 (55.9s-65.5s): 纯左右原生文字，画面零图片干扰！
-        ("LEFT",  "侧边原生文字_左", "浙 490\n苏 480\n豫 460\n鲁 440",  -0.60, 0.16, 14.5, cue_st("浙江省490", 55.93), 65_500_000, TextIntro.打字机_I),
-        ("RIGHT", "侧边原生文字_右", "黑 380\n吉 340\n内蒙 400",          0.60, 0.16, 14.5, cue_st("黑龙江380", 61.90), 65_500_000, TextIntro.打字机_I),
-        # 阶段点题标 (严格在对应图片入场前退场，零撞车！)
-        ("RIGHT", "侧边原生文字_右", "高一阶段\n文化+打底",               0.58, 0.24, 14.5, 81_300_000,  83_600_000, TextIntro.向上弹入),
-        ("RIGHT", "侧边原生文字_右", "高二阶段\n抢跑篆刻",               0.58, 0.24, 14.5, 93_650_000,  96_900_000, TextIntro.向上弹入),
-        # 国美 vs 央美科目分值 (全部在 LEFT 区，严格对应 RIGHT 区实拍图，左文右图绝不重叠！)
-        ("LEFT",  "侧边原生文字_左", "国美校考\n书法 100\n篆刻 100\n古汉语 100", -0.58, 0.16, 14.0, 103_900_000, 107_850_000, TextIntro.打字机_I),
-        ("LEFT",  "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100",             -0.58, 0.18, 14.5, 108_100_000, 111_850_000, TextIntro.向上弹入),
-        # 高三阶段标 (严格在128s高三图片入场前退场！)
-        ("RIGHT", "侧边原生文字_右", "高三阶段\n真题+冲文化",             0.58, 0.24, 14.5, 119_450_000, 123_200_000, TextIntro.向上弹入),
+        # 数据分离段 #1 — 南北各省本科线对比 (55.9s-65.5s): 背景虚化压暗 + 上方圆形清晰人物 + 下方左右大字数据！
+        ("LEFT",   "侧边原生文字_左", "高分省\n浙 490\n苏 480\n豫 460\n鲁 440", -0.50, -0.10, 15.5, cue_st("浙江省490", 55.93), 65_500_000, TextIntro.打字机_I),
+        ("RIGHT",  "侧边原生文字_右", "捡漏省\n黑 380\n吉 340\n内蒙 400",        0.50, -0.10, 15.5, cue_st("黑龙江380", 61.90), 65_500_000, TextIntro.打字机_I),
+        # 3 处居中大字章节分段 (完全复刻用户 v8 手调: 25pt 居中 y=-0.04 + 仅主轨模糊 + 锐利半透明黑场衬底条!)
+        ("CENTER", "侧边原生文字_右", "高一阶段\n文化+打底",                       0.00, -0.04, 25.0, 81_170_000,  83_670_000, TextIntro.向上弹入),
+        ("CENTER", "侧边原生文字_右", "高二阶段\n抢跑篆刻",                       0.00, -0.04, 25.0, 93_530_000,  96_770_000, TextIntro.向上弹入),
+        # 数据分离段 #2 — 国美 vs 央美科目分值 (103.9s-111.85s): 上方圆形清晰人物 + 左文右图错位，零重叠！
+        ("LEFT",   "侧边原生文字_左", "国美校考\n书法 100\n篆刻 100\n古汉语 100", -0.50, -0.10, 15.0, 103_900_000, 107_850_000, TextIntro.打字机_I),
+        ("LEFT",   "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100",             -0.50, -0.10, 15.5, 108_100_000, 111_850_000, TextIntro.向上弹入),
+        # 章节分段 #3
+        ("CENTER", "侧边原生文字_右", "高三阶段\n真题+冲文化",                     0.00, -0.04, 25.0, 119_330_000, 123_070_000, TextIntro.向上弹入),
     ]
 
     # Built-in 2D space-time collision gate: fail loudly if ANY zone has overlapping PiP/side-text!
