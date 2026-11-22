@@ -13,7 +13,8 @@ Features (strictly following 海晞口播剪辑与包装标准模板.md):
      - Persistent top two-line title: FontType.清刻本悦 (FZQKBYSJW.ttf),
        Line 1 larger + bold (#FFFFFF), Line 2 smaller + normal weight (#FFF29D),
        NO border/stroke + black shadow 85%, positioned cleanly in top headroom.
-     - Emphasis keyword popups (#FFF29D & #FF619D), NO border/stroke + black shadow 88%.
+     - Emphasis keyword splits: FontType.仓耳丰黑 + #FFF29D, direct font_size 18-21 (scale=1.0),
+       NO border/stroke + black shadow 85%, paired below <=10-char main subtitle with zero duplication.
      - Verified masked proof PiP cards on left/right edges + looped BGM (-10 dB) + sparse SFX.
      - 100% self-contained draft (assets/ copied locally) + verified local JianYing font cache paths.
 """
@@ -54,7 +55,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v5"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v6"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -109,15 +110,15 @@ LOCAL_FONT_CACHE = {
         "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
         "7086429206543864350/2e70579a0538bde91edc1eaedc68c02f/FZQKBYSJW.ttf"
     ),
-    FontType.新青年体.value.resource_id: (
-        "D:/Software/剪映/JianyingPro/11.8.0.14778/Resources/Font/新青年体.ttf"
+    FontType.仓耳丰黑.value.resource_id: (
+        "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
+        "7423616269397545499/cf1448c24a214eb3c9eb97f0d9883cde/仓耳丰黑.ttf"
     ),
 }
 
 # Colors (RGB 0..1)
 COLOR_WHITE = (1.0, 1.0, 1.0)
-COLOR_YELLOW = (1.0, 0.949, 0.616)  # #FFF29D — Draft #1 main highlight yellow
-COLOR_PINK = (1.0, 0.380, 0.616)    # #FF619D — Draft #1 secondary number highlight pink
+COLOR_YELLOW = (1.0, 0.949, 0.616)  # #FFF29D — Haixi standard highlight yellow
 
 # Confirmed retakes / stutters / isolated fillers to remove (source video seconds)
 EXPLICIT_DELETE_RANGES: list[tuple[float, float, str]] = [
@@ -406,29 +407,30 @@ def _smart_chinese_split(chunk: str, max_chars: int) -> list[str]:
 
 
 # Paired emphasis-split rules (SOP: main subtitle <= 10 chars on top + highlighted keyword split below, ZERO duplication!)
-# Format: (match_text, main_text_le_10, kw_text, kw_color, kw_font, kw_scale, kw_anim, sfx_name, sfx_vol)
-KEYWORD_SPLIT_RULES: list[tuple[str, str, str, tuple[float, float, float], FontType, float, TextIntro, str, float]] = [
-    ("从本科读到硕士 一共七年", "从本科读到硕士", "一共七年", COLOR_YELLOW, FontType.金陵体, 1.48, TextIntro.向上弹入, "drop", 0.45),
-    ("每年很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", COLOR_YELLOW, FontType.金陵体, 1.42, TextIntro.向上弹入, "ding", 0.48),
-    ("很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", COLOR_YELLOW, FontType.金陵体, 1.42, TextIntro.向上弹入, "ding", 0.48),
-    ("最后都硬生生的折在了文化分上", "最后都硬生生的", "折在了文化分上", COLOR_PINK, FontType.新青年体, 1.38, TextIntro.缩小, "dong", 0.42),
-    ("平时死守文化课", "平时死守", "文化课", COLOR_YELLOW, FontType.金陵体, 1.55, TextIntro.向上弹入, "ding", 0.46),
-    ("就一个 不低于本省的本科线", "就一个", "不低于本省本科线", COLOR_YELLOW, FontType.金陵体, 1.32, TextIntro.左移弹动, "drop", 0.45),
-    ("竟然可以悬殊100分", "竟然可以", "悬殊100分!", COLOR_PINK, FontType.新青年体, 1.55, TextIntro.缩小, "stamp", 0.46),
-    ("去画室机构烧钱集训", "去画室机构", "烧钱集训", COLOR_PINK, FontType.新青年体, 1.50, TextIntro.向上弹入, "dong", 0.40),
-    ("就可以让小孩尽早接触篆刻科目啦", "就可以让小孩尽早接触", "篆刻科目", COLOR_YELLOW, FontType.金陵体, 1.48, TextIntro.左移弹动, "ding", 0.48),
-    ("校考科目有大半的分数都在篆刻", "校考科目有大半的分数", "都在篆刻", COLOR_PINK, FontType.新青年体, 1.52, TextIntro.缩小, "stamp", 0.46),
-    ("直接占了分数的大半壁江山", "直接占了分数的", "大半壁江山", COLOR_YELLOW, FontType.金陵体, 1.45, TextIntro.向上弹入, "drop", 0.45),
-    ("绝不要彻底丢掉文化课", "绝不要彻底丢掉", "文化课", COLOR_PINK, FontType.新青年体, 1.55, TextIntro.缩小, "dong", 0.42),
-    ("那么可以留下书法艺考", "那么可以留下", "书法艺考", COLOR_YELLOW, FontType.金陵体, 1.50, TextIntro.向上弹入, "ding", 0.50),
+# All emphasis keywords use FontType.仓耳丰黑 + COLOR_YELLOW (#FFF29D) + direct font_size (18-21, scale=1.0).
+# Format: (match_text, main_text_le_10, kw_text, kw_font_size, kw_anim, sfx_name, sfx_vol)
+KEYWORD_SPLIT_RULES: list[tuple[str, str, str, float, TextIntro, str, float]] = [
+    ("从本科读到硕士 一共七年", "从本科读到硕士", "一共七年", 20.0, TextIntro.向上弹入, "drop", 0.45),
+    ("每年很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", 19.0, TextIntro.向上弹入, "ding", 0.48),
+    ("很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", 19.0, TextIntro.向上弹入, "ding", 0.48),
+    ("最后都硬生生的折在了文化分上", "最后都硬生生的", "折在了文化分上", 18.5, TextIntro.缩小, "dong", 0.42),
+    ("平时死守文化课", "平时死守", "文化课", 21.0, TextIntro.向上弹入, "ding", 0.46),
+    ("就一个 不低于本省的本科线", "就一个", "不低于本省本科线", 18.0, TextIntro.左移弹动, "drop", 0.45),
+    ("竟然可以悬殊100分", "竟然可以", "悬殊100分!", 20.0, TextIntro.缩小, "stamp", 0.46),
+    ("去画室机构烧钱集训", "去画室机构", "烧钱集训", 20.0, TextIntro.向上弹入, "dong", 0.40),
+    ("就可以让小孩尽早接触篆刻科目啦", "就可以让小孩尽早接触", "篆刻科目", 20.0, TextIntro.左移弹动, "ding", 0.48),
+    ("校考科目有大半的分数都在篆刻", "校考科目有大半的分数", "都在篆刻", 20.0, TextIntro.缩小, "stamp", 0.46),
+    ("直接占了分数的大半壁江山", "直接占了分数的", "大半壁江山", 19.5, TextIntro.向上弹入, "drop", 0.45),
+    ("绝不要彻底丢掉文化课", "绝不要彻底丢掉", "文化课", 21.0, TextIntro.缩小, "dong", 0.42),
+    ("那么可以留下书法艺考", "那么可以留下", "书法艺考", 20.0, TextIntro.向上弹入, "ding", 0.50),
 ]
 
 
-def _match_keyword_split(text: str) -> tuple[str, str, tuple[float, float, float], FontType, float, TextIntro, str, float] | None:
+def _match_keyword_split(text: str) -> tuple[str, str, float, TextIntro, str, float] | None:
     norm = re.sub(r"\s+", " ", text).strip()
-    for pat, main_t, kw_t, col, fnt, sc, anim, sfx_k, sfx_v in KEYWORD_SPLIT_RULES:
+    for pat, main_t, kw_t, kw_sz, anim, sfx_k, sfx_v in KEYWORD_SPLIT_RULES:
         if norm == pat or pat in norm:
-            return (main_t, kw_t, col, fnt, sc, anim, sfx_k, sfx_v)
+            return (main_t, kw_t, kw_sz, anim, sfx_k, sfx_v)
     return None
 
 
@@ -943,7 +945,7 @@ def main() -> int:
         hit_kw = _match_keyword_split(txt)
         rule_key = f"{hit_kw[0]}|{hit_kw[1]}" if hit_kw is not None else ""
         if hit_kw is not None and rule_key not in used_kw_rules and (ed - st) >= 650_000:
-            main_t, kw_t, kw_col, kw_font, kw_scale, kw_anim, sfx_k, sfx_v = hit_kw
+            main_t, kw_t, kw_sz, kw_anim, sfx_k, sfx_v = hit_kw
             used_kw_rules.add(rule_key)
             # Main subtitle: <= 10-char prefix lifted gently to y=-0.49
             tseg = TextSegment(
@@ -958,7 +960,8 @@ def main() -> int:
             script.add_segment(tseg, "字幕_金陵体")
             sub_count += 1
 
-            # Paired keyword highlight right below at y=-0.69, entering when spoken & ending with main subtitle
+            # Paired keyword highlight right below at y=-0.69:
+            # FontType.仓耳丰黑 + COLOR_YELLOW (#FFF29D) + direct font_size (18-21, scale=1.0)
             total_len = max(1, len(main_t) + len(kw_t))
             ratio = len(main_t) / total_len
             kw_st = st + int((ed - st) * ratio) - 80_000
@@ -970,9 +973,9 @@ def main() -> int:
                 kseg = TextSegment(
                     kw_t,
                     Timerange(kw_st, kw_dur),
-                    font=kw_font,
-                    style=TextStyle(size=13.5, color=kw_col, align=1, bold=False),
-                    clip_settings=ClipSettings(transform_x=0.0, transform_y=-0.69, scale_x=kw_scale, scale_y=kw_scale),
+                    font=FontType.仓耳丰黑,
+                    style=TextStyle(size=kw_sz, color=COLOR_YELLOW, align=1, bold=False),
+                    clip_settings=ClipSettings(transform_x=0.0, transform_y=-0.69, scale_x=1.0, scale_y=1.0),
                     border=None,
                     shadow=kw_shadow,
                 )
