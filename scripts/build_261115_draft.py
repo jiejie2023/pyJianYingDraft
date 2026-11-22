@@ -54,9 +54,15 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v3"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v4"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
+BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
+LINEAR_MASK_CACHE_PATH = (
+    "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
+    "82432976/4c6a0ef5de6a844342d40330e00c59eb"
+)
+LINEAR_MASK_RESOURCE_ID = "7356933362960831003"
 BEAUTY_PRESET_PATH = Path(
     r"D:\Jiely Life\projects\剪映AI草稿工具\02_resources\haixi_beauty_preset.json"
 )
@@ -508,8 +514,10 @@ def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us:
         beauty_templates = list(beauty_cfg.get("effects") or [])
 
     effects_list = data.setdefault("materials", {}).setdefault("effects", [])
+    masks_list = data.setdefault("materials", {}).setdefault("common_mask", [])
     beauty_clips = 0
     beauty_refs_total = 0
+    top_shadow_masks = 0
     for tr in data.get("tracks", []):
         if tr.get("type") == "video" and tr.get("name") == "主视频_1.3x粗剪":
             for seg in tr.get("segments", []):
@@ -525,6 +533,36 @@ def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us:
                         extra_refs.append(eff_id)
                         beauty_refs_total += 1
                     beauty_clips += 1
+        elif tr.get("type") == "video" and tr.get("name") == "顶部渐变阴影_黑场":
+            for seg in tr.get("segments", []):
+                mask_id = str(uuid.uuid4()).upper()
+                mask_obj = {
+                    "id": mask_id,
+                    "constant_material_id": str(uuid.uuid4()).upper(),
+                    "name": "线性",
+                    "type": "mask",
+                    "category": "video",
+                    "category_id": "jichu",
+                    "category_name": "基础",
+                    "resource_type": "line",
+                    "resource_id": LINEAR_MASK_RESOURCE_ID,
+                    "path": LINEAR_MASK_CACHE_PATH,
+                    "text_config": {"align_type": 15},
+                    "config": {
+                        "aspectRatio": 1.0,
+                        "centerX": 0.0,
+                        "centerY": 0.316,
+                        "feather": 1.0,
+                        "height": 0.5,
+                        "invert": False,
+                        "rotation": 0.0,
+                        "roundCorner": 0.0,
+                        "width": 0.28,
+                    },
+                }
+                masks_list.append(mask_obj)
+                seg.setdefault("extra_material_refs", []).append(mask_id)
+                top_shadow_masks += 1
 
     # 2. Patch text materials (local font path, shadow, bold_width, zero-stroke check)
     patched_fonts = 0
@@ -581,6 +619,7 @@ def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us:
 
     print(
         f"[patch] beauty preset attached to {beauty_clips} clips ({beauty_refs_total} effect refs); "
+        f"top gradient shadow linear mask attached on {top_shadow_masks} segment(s); "
         f"verified local fonts injected on {patched_fonts} text materials"
     )
 
@@ -706,12 +745,14 @@ def main() -> int:
         asset_img_dir,
         "09_央美篆刻92分全国最高.jpg",
     )
+    img_black_field = copy_asset(BLACK_FIELD_PATH, asset_img_dir, "top_shadow_black.png")
 
-    # 4. Declare tracks in clean z-order (video -> PiP -> text -> audio)
+    # 4. Declare tracks in clean z-order (video -> PiP -> top gradient shadow -> text -> audio)
     script.append_track(TrackSpec(TrackType.video, name="主视频_1.3x粗剪"))
     script.append_track(TrackSpec(TrackType.video, name="画中画_左"))
     script.append_track(TrackSpec(TrackType.video, name="画中画_中"))
     script.append_track(TrackSpec(TrackType.video, name="画中画_右"))
+    script.append_track(TrackSpec(TrackType.video, name="顶部渐变阴影_黑场"))
 
     script.append_track(TrackSpec(TrackType.text, name="字幕_金陵体"))
     script.append_track(TrackSpec(TrackType.text, name="重点大字包装"))
@@ -740,18 +781,27 @@ def main() -> int:
         )
         script.add_segment(vseg, "主视频_1.3x粗剪")
 
-    # 6. Add persistent top two-line title
-    #    - Font: FontType.清刻本悦 (FZQKBYSJW.ttf)
-    #    - Line 1: larger + bold (#FFFFFF), Line 2: slightly smaller + normal weight (#FFF29D)
-    #    - NO border/stroke; black shadow ~85% (80-90%) for clean legibility
-    #    - Intro: TextIntro.向上弹入 (0.4s)
+    # 6. Add top-title dark gradient shadow layer (黑场 + 线性蒙版 100% 羽化, matching Draft 1 A380C00A 1320x1760)
+    black_mat = VideoMaterial(str(img_black_field), material_name="黑场")
+    top_shadow_seg = VideoSegment(
+        black_mat,
+        Timerange(0, total_tl_us),
+        clip_settings=ClipSettings(transform_x=0.0, transform_y=0.636, scale_x=1.0, scale_y=1.0, alpha=1.0),
+    )
+    script.add_segment(top_shadow_seg, "顶部渐变阴影_黑场")
+
+    # 6b. Add persistent top two-line title right above the top gradient shadow layer
+    #     - Font: FontType.清刻本悦 (FZQKBYSJW.ttf)
+    #     - Line 1: larger + bold (#FFFFFF), Line 2: slightly smaller + normal weight (#FFF29D)
+    #     - NO border/stroke; black shadow ~85% (80-90%) for clean legibility
+    #     - Intro: TextIntro.向上弹入 (0.4s)
     title_shadow = TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
     top_line1 = TextSegment(
         "书法生想上国美央美",
         Timerange(0, total_tl_us),
         font=FontType.清刻本悦,
         style=TextStyle(size=13.0, color=COLOR_WHITE, align=1, bold=True, letter_spacing=1),
-        clip_settings=ClipSettings(transform_x=0.0, transform_y=0.845, scale_x=1.38, scale_y=1.38),
+        clip_settings=ClipSettings(transform_x=0.0, transform_y=0.840, scale_x=1.38, scale_y=1.38),
         border=None,
         shadow=title_shadow,
     )
@@ -763,7 +813,7 @@ def main() -> int:
         Timerange(0, total_tl_us),
         font=FontType.清刻本悦,
         style=TextStyle(size=10.5, color=COLOR_YELLOW, align=1, bold=False, letter_spacing=1),
-        clip_settings=ClipSettings(transform_x=0.0, transform_y=0.685, scale_x=1.38, scale_y=1.38),
+        clip_settings=ClipSettings(transform_x=0.0, transform_y=0.665, scale_x=1.38, scale_y=1.38),
         border=None,
         shadow=title_shadow,
     )
