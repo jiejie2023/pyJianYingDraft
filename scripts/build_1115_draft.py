@@ -1,31 +1,33 @@
 #!/usr/bin/env python3
 """
-Build a complete rough-cut + packaged JianYing 11.8 plaintext draft for
-`1115刚上高中书法生转变` using pyJianYingDraft.
+Build a bespoke, de-templatized, frame-accurate JianYing 11.8 plaintext draft for
+`1115刚上高中书法生转变` (`v2`) using pyJianYingDraft.
 
-Applies 100% of the finalized v13 SOP (`海晞口播剪辑与包装标准模板.md`):
-  1. Stage 1 — Pre-cut base prep applied across all main talking-head clips (+ circular PiP clips):
-     1.3x playback speed + +10 dB voice gain (volume=last_nonzero_volume=3.162278) + 17-item Haixi beauty preset.
-  2. Stage 2 — Non-destructive rough cut (removes all verified retakes, stumbles, hiss, and long dead-air silences).
-  3. Stage 3 — Manual-edit-grade packaging:
-     - Subtitles: FontType.金陵体, size 13.5, #FFFFFF, NO border/stroke + black shadow 85%,
-       strictly <= 10 visible chars per regular cue; drops locally to y=-0.729 ONLY inside data-separation screens.
-     - Paired emphasis keywords: FontType.仓耳丰黑 + #FFF29D, direct size 18.5-21.0 (scale=1.0),
-       varied non-repetitive TextIntro animations, paired below <=10-char main subtitle (or relayed at y=-0.708 in data screens).
-     - Top two-line persistent title (`清刻本悦`, Line 1 bold #FFFFFF + Line 2 normal #FFF29D) +
-       top gradient dark shadow (`黑场` + linear mask feather=1.0), auto-cut around B-roll, chapter dividers & data screens.
-     - Full-screen personal credential B-roll (国美本硕) + muted soft-feathered top-right circular speaker PiP
-       (feather=0.04, enable_mask_stroke=False, independent material_id).
-     - 4 crisp chapter dividers (Track-0-only segment blur 50% + crisp Track-1 semi-transparent black banner + 25pt title).
-     - 4 data/viewpoint separation screens (Track-0-only blur 42-45% + dark veil + top-center crisp white-stroked circular
-       speaker y=+0.597, feather=0.0, independent material_id, enable_mask_stroke=True + two-tone white-header/yellow-body lists).
-     - 100% visually-verified real `06_交付知识库` topic-matched PiPs with hard 2D zone collision & >=1.4s duration gates.
-     - 3 restrained `暗角` focus accents + looped zither BGM (-15 dB, 0.1778) + sparse SFX (0 dB).
-     - 100% self-contained draft (`assets/` copied locally) + verified local JianYing `.ttf` cache paths.
+Key v2 upgrades (applying core Haixi SOP guardrails + tailored content-driven aesthetics):
+  1. Frame-accurate word-level subtitle & keyword sync:
+     Maps every split subtitle cue and every emphasis keyword directly from FunASR's
+     per-character timestamps (`sentence_info[].timestamp`) through the 1.3x cut map
+     (eliminating VAD trailing-silence drift and proportional-split lag!).
+  2. 3-Act pure-instrumental BGM progression with smooth loudness-calibrated crossfades:
+     - Act 1 (0.0s–58.3s, 开场警钟+文化课冲击): `轻快的宣传音乐` (vol=0.120)
+     - Act 2 (57.7s–169.5s, 高中生态+小众孤独+考场残酷): `云海（治愈纯音乐）` (vol=0.520)
+     - Act 3 (168.9s–228.7s, 切换应试+时间规划+希望收尾): `鼓舞人心和励志的流行音乐` (vol=0.148)
+  3. De-templatized visual language tailored to `1115` (NO copy-paste clone of `261115`!):
+     - Fresh unused vertical Haixi IP photos for 国美本硕 B-roll (红门楼学士服 / 国美奖学金 / 书法学院红墙).
+     - ONLY ONE ultra-minimal numeric comparison screen (以前 30%/70% vs 现在 50%/50%, 3 short lines/side, zero edge clipping).
+     - Real ink-on-rice-paper `04_学生试卷` mock-exam sheets (楷书/行书/篆书/隶书) during 应试书法 vs 兴趣班书法 instead of a bloated wall of text!
+     - 3 sleek minimalist numbered chapter breaths (01/02/03) + natural Act-3 musical transition at 169s.
+     - Airy, non-cluttered Act 3 planning & fresh Grade 1/2 proof assets with strict 2D zone collision & >=1.4s gates.
+  4. All Haixi brand guardrails strictly preserved:
+     1.3x speed, +10 dB voice (3.162278), 17-item beauty on Track 0 & Track 3,
+     金陵体 <=10-char single-line subtitles, 仓耳丰黑 + #FFF29D/#FFFFFF 2-color palette,
+     zero text strokes + 85-88% shadow, independent Track 3 material_id + enable_mask_stroke,
+     verified local `.ttf` font paths, and 100% self-contained `assets/`.
 """
 from __future__ import annotations
 
 import copy
+import difflib
 import json
 import re
 import shutil
@@ -59,7 +61,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "1115刚上高中书法生转变_AI粗剪包装_v1"
+NEW_DRAFT_NAME = "1115刚上高中书法生转变_AI粗剪包装_v2"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\1115刚上高中书法生转变_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -111,9 +113,26 @@ DRAFT1_AUDIO_DIR = Path(
 DRAFT1_VIDEO_DIR = Path(
     r"D:\Software\剪映\JianyingPro Drafts\书法生380-450能上什么学校 (1)\materials\video"
 )
-PROOF_ROOT_DIR = Path(
-    r"D:\Jiely Life\projects\海晞文化-内容助理\02_resources\书法海海知识库\06_交付知识库\02_交付证明"
+
+# 3 Pure-Instrumental Mood-Matched BGM Sources (all audited by ear & ffmpeg volumedetect!)
+BGM_ACT1_SRC = Path(
+    r"D:\Software\剪映\JianyingPro Drafts\.recycle_bin\书法生380-450能上什么学校 (1)\materials\audio\573ab3677b5f78232114600aeacd644d.mp3"
+)  # 轻快的宣传音乐 (138.3s, mean -12.1 dB -> vol 0.120)
+BGM_ACT2_SRC = Path(
+    r"D:\Software\剪映\JianyingPro Drafts\.cloud_cache_2850389393418237\书法生380-450能上什么学校 (1)\materials\audio\5c990b783392741d6e31effd1ff86893.mp3"
+)  # 云海（治愈纯音乐） (100.5s, mean -25.7 dB -> vol 0.520)
+BGM_ACT3_SRC = Path(
+    r"D:\Software\剪映\JianyingPro Drafts\.recycle_bin\✅1008 (1)\materials\audio\0c3df946bdcd60961e9d28d111c26635.mp3"
+)  # 鼓舞人心和励志的流行音乐 (118.5s, mean -13.9 dB -> vol 0.148)
+
+IP_ROOT_DIR = Path(
+    r"D:\Jiely Life\projects\海晞文化-内容助理\02_resources\书法海海知识库\01_IP知识库\02_IP图片"
 )
+DELIV_ROOT_DIR = Path(
+    r"D:\Jiely Life\projects\海晞文化-内容助理\02_resources\书法海海知识库\06_交付知识库"
+)
+PROOF_ROOT_DIR = DELIV_ROOT_DIR / "02_交付证明"
+EXAM_SHEETS_DIR = DELIV_ROOT_DIR / "04_学生试卷" / "26届" / "天天" / "第六次模拟考"
 PROOF_GAOSAN_DIR = PROOF_ROOT_DIR / "07_成绩结果图" / "03_高三"
 
 CANVAS_WIDTH = 1320
@@ -123,7 +142,6 @@ PLAYBACK_SPEED = 1.3
 VOICE_GAIN_DB = 10.0
 VOICE_VOLUME = round(10.0 ** (VOICE_GAIN_DB / 20.0), 6)  # +10 dB = 3.162278
 
-# Verified local font cache paths on this PC
 LOCAL_FONT_CACHE = {
     FontType.金陵体.value.resource_id: (
         "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
@@ -143,18 +161,18 @@ LOCAL_FONT_CACHE = {
     ),
 }
 
-# STRICT 2-COLOR RULE: ONLY pure white & Haixi light yellow (#FFF29D)
+# STRICT 2-COLOR PALETTE
 COLOR_WHITE = (1.0, 1.0, 1.0)
 COLOR_YELLOW = (1.0, 0.949, 0.616)  # #FFF29D
 
-# Two-tone data-screen header labels (first line #FFFFFF, body lines #FFF29D)
+# First-line white header + body yellow styling
 TWO_TONE_HEADERS = {
     "以前录取",
     "现在录取",
-    "应试书法",
-    "兴趣班书法",
-    "平时周末",
-    "假期提分",
+    "周末节奏",
+    "01",
+    "02",
+    "03",
 }
 
 # Confirmed retakes / stumbles / dead air to remove (source video seconds, verified by ear)
@@ -173,7 +191,7 @@ EXPLICIT_DELETE_RANGES: list[tuple[float, float, str]] = [
     (641.25, 642.41, "片尾静音"),
 ]
 
-# Verified ASR homophone / typo corrections (display text only)
+# Verified ASR homophone / typo corrections
 TEXT_CORRECTIONS: list[tuple[str, str]] = [
     ("两头的晕头转向", "两头都晕头转向"),
     ("书法课，书法高考", "书法高考"),
@@ -195,6 +213,8 @@ TEXT_CORRECTIONS: list[tuple[str, str]] = [
     ("一百名", "100名"),
 ]
 
+PUNCT_RE = re.compile(r"[，。！？、；：,.!?;:\s]")
+
 
 @dataclass
 class KeptClip:
@@ -204,6 +224,15 @@ class KeptClip:
     tl_dur_us: int = 0
     scale: float = 1.0
     transform_y: float = 0.0
+
+
+@dataclass
+class TimedCue:
+    start_us: int
+    end_us: int
+    text: str
+    ends_sentence: bool
+    char_tl_starts: list[int]  # 1.3x timeline start_us for each non-space char in `text`
 
 
 def sec_to_us(seconds: float) -> int:
@@ -277,7 +306,7 @@ def compute_kept_clips(
     video_duration_s: float,
 ) -> list[KeptClip]:
     """Build tight, breath-trimmed, retake-free video clips with safe speech padding."""
-    first_speech = max(0.0, sentences[0]["start"] / 1000.0 - 0.12)
+    first_speech = max(0.0, sentences[0]["start"] / 1000.0 - 0.10)
     last_speech = min(video_duration_s - 0.05, sentences[-1]["end"] / 1000.0 + 0.35)
 
     cut_ranges: list[tuple[float, float]] = [(a, b) for a, b, _ in EXPLICIT_DELETE_RANGES]
@@ -319,7 +348,6 @@ def compute_kept_clips(
             cleaned.append((max(first_speech, sa - 0.06), min(last_speech, sb + 0.08)))
     cleaned = merge_intervals(cleaned, gap=0.10)
 
-    # Subtle 1.00 / 1.06 chapter punch-in transitions (keeps top headroom intact)
     chapter_punch_starts = [66.0, 100.0, 142.0, 187.0, 265.0, 306.0, 398.0, 491.0, 583.0]
     clips: list[KeptClip] = []
     cursor_us = 0
@@ -346,21 +374,22 @@ def compute_kept_clips(
 
 
 def map_src_to_tl_us(src_s: float, clips: list[KeptClip], *, prefer_end: bool = False) -> int | None:
+    """Monotonic piecewise-linear mapping from source seconds to 1.3x timeline microseconds.
+    Any timestamp inside a trimmed silence gap cleanly maps to the exact splice boundary between
+    the adjacent kept clips — NEVER snapping backwards and NEVER dropping a spoken clause!
+    """
+    if not clips:
+        return None
+    if src_s <= clips[0].src_start:
+        return 0
     for c in clips:
         if c.src_start <= src_s <= c.src_end:
             offset_us = round(((src_s - c.src_start) * 1_000_000.0) / PLAYBACK_SPEED)
             return c.tl_start_us + min(offset_us, c.tl_dur_us)
-    best: tuple[float, int] | None = None
-    for c in clips:
-        if prefer_end:
-            dist = abs(src_s - c.src_end)
-            cand = c.tl_start_us + c.tl_dur_us
-        else:
-            dist = abs(src_s - c.src_start)
-            cand = c.tl_start_us
-        if dist <= 0.35 and (best is None or dist < best[0]):
-            best = (dist, cand)
-    return best[1] if best is not None else None
+        if src_s < c.src_start:
+            # src_s fell inside the cut gap immediately preceding clip `c`: maps to exact splice point!
+            return c.tl_start_us
+    return clips[-1].tl_start_us + clips[-1].tl_dur_us
 
 
 def clean_subtitle_text(text: str) -> str:
@@ -429,9 +458,8 @@ def _smart_chinese_split(chunk: str, max_chars: int) -> list[str]:
     return out
 
 
-# Paired emphasis-split rules (SOP: main <= 10 chars + yellow 仓耳丰黑 keyword below, ZERO duplication!)
-# Varied non-repetitive TextIntro animations across the timeline!
-# Format: (match_text, main_text_le_10, kw_text, kw_font_size, kw_anim, sfx_name, sfx_vol)
+# Curated, punchy emphasis-split rules (17 high-impact moments, varied TextIntro animations!)
+# Every keyword's entrance is timed to the EXACT spoken millisecond of its first character!
 KEYWORD_SPLIT_RULES: list[tuple[str, str, str, float, TextIntro, str, float]] = [
     ("一定要做好四个心理准备", "一定要做好", "四个心理准备", 20.0, TextIntro.向上弹入, "ding", 1.0),
     ("两头都晕头转向", "两头都", "晕头转向", 21.0, TextIntro.缩小, "dong", 1.0),
@@ -441,7 +469,6 @@ KEYWORD_SPLIT_RULES: list[tuple[str, str, str, float, TextIntro, str, float]] = 
     ("可能刚进高中就给他当头一棒", "可能刚进高中就给他", "当头一棒", 21.0, TextIntro.缩小, "stamp", 1.0),
     ("文化差点也没关系", "文化差点", "也没关系", 20.5, TextIntro.向下露出, "dong", 1.0),
     ("大部分录取都是专业文化五五开", "大部分录取都是", "专业文化五五开", 19.0, TextIntro.左移弹动, "ding", 1.0),
-    ("因为这可能是和他们的职称绩效挂钩的", "这可能和他们的", "职称绩效挂钩", 19.5, TextIntro.开幕, "drop", 1.0),
     ("更考验小孩的独立性了", "更考验小孩的", "独立性了", 21.0, TextIntro.放大, "ding", 1.0),
     ("这下连随大流的机会都没有了", "这下连随大流的机会", "都没有了", 20.5, TextIntro.缩小, "dong", 1.0),
     ("只能落在家长您的肩膀上了", "只能落在家长您的", "肩膀上了", 21.0, TextIntro.向下露出, "stamp", 1.0),
@@ -450,7 +477,6 @@ KEYWORD_SPLIT_RULES: list[tuple[str, str, str, float, TextIntro, str, float]] = 
     ("都要扣5分", "都要", "扣5分!", 21.0, TextIntro.放大, "stamp", 1.0),
     ("就能把您家小孩的名次拉下100来名", "就能把您家小孩的名次", "拉下100来名!", 19.5, TextIntro.缩小, "stamp", 1.25),
     ("时间真的就是挤出来的", "时间真的就是", "挤出来的", 21.0, TextIntro.左移弹动, "ding", 1.0),
-    ("才不会荒废高中的宝贵时间", "才不会荒废高中的", "宝贵时间", 20.5, TextIntro.汇聚, "ding", 1.0),
     ("让专业跟文化都能够两手抓", "让专业跟文化都能够", "两手抓", 21.0, TextIntro.向上弹入, "ding", 1.0),
     ("那么可以留下线上集训", "那么可以留下", "线上集训", 20.5, TextIntro.向上弹入, "ding", 1.0),
 ]
@@ -461,7 +487,6 @@ def _match_keyword_split(text: str) -> tuple[str, str, float, TextIntro, str, fl
     norm_compact = norm.replace(" ", "")
     for pat, main_t, kw_t, kw_sz, anim, sfx_k, sfx_v in KEYWORD_SPLIT_RULES:
         pat_compact = pat.replace(" ", "")
-        # Strict near-exact match so extra clauses are NEVER swallowed!
         if norm_compact == pat_compact or (
             pat_compact in norm_compact and abs(len(norm_compact) - len(pat_compact)) <= 2
         ):
@@ -469,14 +494,10 @@ def _match_keyword_split(text: str) -> tuple[str, str, float, TextIntro, str, fl
     return None
 
 
-def split_long_cue(text: str, start_us: int, end_us: int, max_chars: int = 10) -> list[tuple[int, int, str]]:
-    dur = end_us - start_us
+def split_text_parts(text: str, max_chars: int = 10) -> list[str]:
     clean_sp = re.sub(r"[，。、；：,]+", " ", text).strip()
-    if _match_keyword_split(clean_sp) is not None:
-        return [(start_us, end_us, clean_sp)]
-    if len(clean_sp) <= max_chars:
-        return [(start_us, end_us, clean_sp)]
-
+    if _match_keyword_split(clean_sp) is not None or len(clean_sp) <= max_chars:
+        return [clean_sp]
     parts = [p.strip() for p in re.split(r"[，。！？、；：,]", text) if p.strip()]
     merged: list[str] = []
     for part in parts:
@@ -486,58 +507,128 @@ def split_long_cue(text: str, start_us: int, end_us: int, max_chars: int = 10) -
             merged[-1] = merged[-1] + part
         else:
             merged.append(part)
-
     final_parts: list[str] = []
     for chunk in merged:
         if len(chunk) <= max_chars or _match_keyword_split(chunk) is not None:
             final_parts.append(chunk)
         else:
             final_parts.extend(_smart_chinese_split(chunk, max_chars))
+    return final_parts
 
-    total_chars = max(1, sum(len(p) for p in final_parts))
-    cues: list[tuple[int, int, str]] = []
-    cur = start_us
-    for i, part in enumerate(final_parts):
-        if i == len(final_parts) - 1:
-            nxt = end_us
+
+def align_chars_to_timestamps(
+    raw_asr_text: str,
+    clean_text: str,
+    ts_ms_list: list[list[int]],
+    fallback_sa: float,
+    fallback_sb: float,
+) -> list[tuple[float, float]]:
+    """Map every non-punctuation character in `clean_text` to its exact FunASR (start_s, end_s)."""
+    clean_chars = PUNCT_RE.sub("", clean_text)
+    n_clean = len(clean_chars)
+    if n_clean == 0:
+        return []
+
+    raw_chars = PUNCT_RE.sub("", raw_asr_text)
+    # Build source (start_s, end_s) per raw character
+    if ts_ms_list:
+        if len(ts_ms_list) == len(raw_chars):
+            raw_spans = [(a / 1000.0, b / 1000.0) for a, b in ts_ms_list]
         else:
-            share = round(dur * len(part) / total_chars)
-            nxt = min(end_us - 100_000, cur + max(200_000, share))
-        if nxt > cur:
-            cues.append((cur, nxt, part))
-            cur = nxt
-    return cues
+            # Resample monotonically if FunASR merged a multi-char token (e.g. digits)
+            m = len(ts_ms_list)
+            raw_spans = []
+            for i in range(max(1, len(raw_chars))):
+                idx = min(m - 1, int(i * m / max(1, len(raw_chars))))
+                raw_spans.append((ts_ms_list[idx][0] / 1000.0, ts_ms_list[idx][1] / 1000.0))
+    else:
+        step = (fallback_sb - fallback_sa) / max(1, n_clean)
+        return [(fallback_sa + i * step, fallback_sa + (i + 1) * step) for i in range(n_clean)]
+
+    if not raw_spans:
+        step = (fallback_sb - fallback_sa) / max(1, n_clean)
+        return [(fallback_sa + i * step, fallback_sa + (i + 1) * step) for i in range(n_clean)]
+
+    # Use difflib SequenceMatcher to align corrected chars cleanly onto raw ASR chars!
+    sm = difflib.SequenceMatcher(None, raw_chars, clean_chars, autojunk=False)
+    out: list[tuple[float, float] | None] = [None] * n_clean
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for k in range(j2 - j1):
+                out[j1 + k] = raw_spans[min(len(raw_spans) - 1, i1 + k)]
+        elif tag == "replace" and (j2 > j1):
+            a_idx = min(len(raw_spans) - 1, i1)
+            b_idx = min(len(raw_spans) - 1, max(i1, i2 - 1))
+            t0 = raw_spans[a_idx][0]
+            t1 = max(t0 + 0.04, raw_spans[b_idx][1])
+            cnt = j2 - j1
+            for k in range(cnt):
+                out[j1 + k] = (t0 + (t1 - t0) * k / cnt, t0 + (t1 - t0) * (k + 1) / cnt)
+        elif tag == "insert" and (j2 > j1):
+            ref_idx = min(len(raw_spans) - 1, max(0, i1 - 1))
+            t = raw_spans[ref_idx][1]
+            for k in range(j2 - j1):
+                out[j1 + k] = (t, t + 0.04)
+
+    # Fill any remaining None defensively
+    filled: list[tuple[float, float]] = []
+    last_span = raw_spans[0]
+    for sp in out:
+        if sp is not None:
+            last_span = sp
+        filled.append(last_span)
+    return filled
 
 
-def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) -> list[tuple[int, int, str]]:
-    """Convert ASR sentences into crisp, non-overlapping 1.3x timeline subtitle cues."""
-    raw_cues: list[tuple[int, int, str, bool]] = []
+def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) -> list[TimedCue]:
+    """Build frame-accurate, lip-synced 1.3x subtitle cues directly from FunASR character timestamps!"""
+    custom_splits: dict[str, list[str]] = {
+        "给全国近300个家庭做书法艺考规划": ["给全国近300个家庭", "做书法艺考规划"],
+        "其中总结出来的经验已经被无数的高一孩子": ["其中总结出来的经验", "已经被无数的", "高一孩子"],
+        "把孩子高中文化和专业两条路都走稳": ["把孩子高中", "文化和专业两条路都走稳"],
+        "刚初三升高一，并且打算走书法艺考的家长": ["刚初三升高一", "并且打算走", "书法艺考的家长"],
+        "的文化课一上高一就会上强度": ["的文化课", "一上高一就会上强度"],
+        "书法是多么极其小众的专业": ["书法是多么", "极其小众的专业"],
+        "小孩书法学习规划的重担": ["小孩书法学习", "规划的重担"],
+        "您既然已经帮孩子选择了走书法专业这条路": ["您既然已经", "帮孩子选择了", "走书法专业这条路"],
+        "他们就是通过纯文化去考大学的呀": ["他们就是通过", "纯文化去考大学的呀"],
+        "必须把它当做，就像高中文化课里一门主科一样": ["必须把它当做", "就像高中文化课里", "一门主科一样"],
+        "小长假也可以跟着线上的专业老师做书法考试的真题训练": ["小长假也可以跟着", "线上的专业老师做", "书法考试的真题训练"],
+        "繁体字、篆字像背英语单词一样": ["繁体字 篆字", "像背英语单词一样"],
+        "我今天急着把这些对高一书法生家长的话录下来": ["我今天急着把这些", "对高一书法生家长的", "话录下来"],
+    }
+
+    raw_cues: list[TimedCue] = []
 
     for idx, sent in enumerate(sentences):
         sa = sent["start"] / 1000.0
         sb = sent["end"] / 1000.0
-        txt = str(sent.get("sentence", ""))
+        raw_txt = str(sent.get("sentence", ""))
+        ts_list: list[list[int]] = list(sent.get("timestamp") or [])
 
-        # Surgical boundary overrides matching explicit partial-sentence cuts
+        # Surgical partial-sentence overrides matching explicit retake/stumble cuts
         if idx == 8:
+            # Cut "书法课" (first 3 chars: 48.28-48.64) -> keep from "书法高考..." (48.76)
             sa = 48.72
-            txt = "书法高考这条路我走了11年"
+            raw_txt = "书法高考这条路我走了十一年"
+            ts_list = [pair for pair in ts_list if pair[0] >= 48_700]
         elif idx == 82:
-            # Merged cleanly into idx 83 ("这当然要区别于")
+            # Single-char "这" (358.82) merged into idx 83
             continue
         elif idx == 83:
             sa = 358.82
-            txt = "这当然要区别于"
+            raw_txt = "这" + raw_txt
+            ts_list = [[358_820, 358_880]] + ts_list
         elif idx == 120:
+            # Cut stutter tail "拉下一百" (484.36+) -> keep "就能把您家小孩的名次"
             sb = 484.18
-            txt = "就能把您家小孩的名次"
+            raw_txt = "就能把您家小孩的名次"
+            ts_list = [pair for pair in ts_list if pair[0] < 484_200]
         elif idx == 144:
+            # Cut stumble tail "才不会方才不会荒" (570.78+) -> keep "这样规划合理"
             sb = 570.62
-            txt = "这样规划合理"
-        elif idx == 18:
-            txt = "第一个准备呢，就是小孩"
-        elif idx == 19:
-            txt = "的文化课一上高一就会上强度"
+            raw_txt = "这样规划合理"
+            ts_list = [pair for pair in ts_list if pair[0] < 570_650]
 
         if is_deleted_source(sa, sb):
             continue
@@ -546,132 +637,130 @@ def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) 
         if not overlapping_clips:
             continue
 
-        ends_sentence = txt.strip().endswith(("。", "！", "？"))
-        clean_txt = clean_subtitle_text(txt)
+        ends_sentence = raw_txt.strip().endswith(("。", "！", "？"))
+        clean_txt = clean_subtitle_text(raw_txt)
         if not clean_txt:
             continue
 
-        t0 = map_src_to_tl_us(max(sa, overlapping_clips[0].src_start), clips, prefer_end=False)
-        t1 = map_src_to_tl_us(min(sb, overlapping_clips[-1].src_end), clips, prefer_end=True)
-        if t0 is None or t1 is None or t1 - t0 < 80_000:
-            continue
+        # Exact per-character source timestamps!
+        char_spans = align_chars_to_timestamps(raw_txt, clean_txt, ts_list, sa, sb)
+        parts = custom_splits[clean_txt] if clean_txt in custom_splits else split_text_parts(clean_txt, max_chars=10)
 
-        # Custom natural-phrase splits (zero mid-word breaks, zero dropped chars!)
-        custom_splits: dict[str, list[str]] = {
-            "给全国近300个家庭做书法艺考规划": ["给全国近300个家庭", "做书法艺考规划"],
-            "把孩子高中文化和专业两条路都走稳": ["把孩子高中", "文化和专业两条路都走稳"],
-            "刚初三升高一，并且打算走书法艺考的家长": ["刚初三升高一", "并且打算走", "书法艺考的家长"],
-            "的文化课一上高一就会上强度": ["的文化课", "一上高一就会上强度"],
-            "书法是多么极其小众的专业": ["书法是多么", "极其小众的专业"],
-            "小孩书法学习规划的重担": ["小孩书法学习", "规划的重担"],
-            "您既然已经帮孩子选择了走书法专业这条路": ["您既然已经", "帮孩子选择了", "走书法专业这条路"],
-            "他们就是通过纯文化去考大学的呀": ["他们就是通过", "纯文化去考大学的呀"],
-            "必须把它当做，就像高中文化课里一门主科一样": ["必须把它当做", "就像高中文化课里", "一门主科一样"],
-            "小长假也可以跟着线上的专业老师做书法考试的真题训练": ["小长假也可以跟着", "线上的专业老师做", "书法考试的真题训练"],
-            "繁体字、篆字像背英语单词一样": ["繁体字 篆字", "像背英语单词一样"],
-            "我今天急着把这些对高一书法生家长的话录下来": ["我今天急着把这些", "对高一书法生家长的", "话录下来"],
-        }
-        if clean_txt in custom_splits:
-            parts_c = custom_splits[clean_txt]
-            tot_c = max(1, sum(len(p) for p in parts_c))
-            cur_c = t0
-            for idx_c, p_c in enumerate(parts_c):
-                nxt_c = t1 if idx_c == len(parts_c) - 1 else min(t1 - 100_000, cur_c + max(180_000, round((t1 - t0) * len(p_c) / tot_c)))
-                raw_cues.append((cur_c, nxt_c, p_c, ends_sentence and idx_c == len(parts_c) - 1))
-                cur_c = nxt_c
-            continue
-
-        sub_parts = split_long_cue(clean_txt, t0, t1, max_chars=10)
-        for idx_p, (pst, ped, ptxt) in enumerate(sub_parts):
-            raw_cues.append((pst, ped, ptxt, ends_sentence and idx_p == len(sub_parts) - 1))
-
-    # Clean targeted merges so no tiny orphaned fragments remain (while staying <= 10 chars or matching a keyword rule)
-    merged_cues: list[tuple[int, int, str, bool]] = []
-    for st, ed, txt, ends_s in sorted(raw_cues, key=lambda x: x[0]):
-        if merged_cues:
-            pst, ped, ptxt, p_ends = merged_cues[-1]
-            if st < ped:
-                st = ped
-            if ed <= st + 60_000:
+        char_cursor = 0
+        for p_idx, p_txt in enumerate(parts):
+            p_compact = PUNCT_RE.sub("", p_txt)
+            p_len = len(p_compact)
+            if p_len == 0:
+                continue
+            sub_spans = char_spans[char_cursor : char_cursor + p_len]
+            char_cursor += p_len
+            if not sub_spans:
                 continue
 
-            # Explicit natural joins across ASR pause splits
-            if ptxt == "就是小孩" and txt.startswith("的文化课"):
-                merged_cues[-1] = (pst, ed, "就是小孩的文化课", False)
+            # Exact spoken first-char start & last-char end (plus tiny 0.09s reading breath)
+            src_c0 = sub_spans[0][0]
+            src_c1 = sub_spans[-1][1] + 0.09
+            if char_cursor < len(char_spans):
+                # Never extend past the next spoken character!
+                src_c1 = min(src_c1, char_spans[char_cursor][0])
+            else:
+                src_c1 = min(src_c1, sb)
+
+            t0 = map_src_to_tl_us(src_c0, clips, prefer_end=False)
+            t1 = map_src_to_tl_us(src_c1, clips, prefer_end=True)
+            if t0 is None or t1 is None:
                 continue
-            if ptxt.endswith("高一孩子") and txt == "验证":
-                merged_cues[-1] = (pst, ed, ptxt + "验证", True)
+            if t1 - t0 < 140_000:
+                t1 = t0 + 180_000
+
+            # Map every char's start onto 1.3x timeline for frame-accurate keyword timing!
+            c_tl_starts: list[int] = []
+            for cs, _ in sub_spans:
+                ct = map_src_to_tl_us(cs, clips, prefer_end=False)
+                c_tl_starts.append(ct if ct is not None else t0)
+
+            raw_cues.append(
+                TimedCue(
+                    start_us=t0,
+                    end_us=t1,
+                    text=p_txt,
+                    ends_sentence=ends_sentence and (p_idx == len(parts) - 1),
+                    char_tl_starts=c_tl_starts,
+                )
+            )
+
+    # Clean targeted merges (preserving exact per-char timeline timestamps!)
+    merged: list[TimedCue] = []
+    for cue in sorted(raw_cues, key=lambda c: c.start_us):
+        if merged:
+            prev = merged[-1]
+            if cue.start_us < prev.end_us:
+                prev.end_us = cue.start_us
+                if prev.end_us < prev.start_us + 90_000:
+                    cue.start_us = prev.start_us + 90_000
+                    prev.end_us = cue.start_us
+            if cue.end_us <= cue.start_us + 60_000:
                 continue
-            if ptxt == "就能把您家小孩的名次" and txt == "拉下100来名":
-                merged_cues[-1] = (pst, ed, "就能把您家小孩的名次拉下100来名", True)
+
+            def _join(new_txt: str, end_s: bool) -> None:
+                prev.end_us = cue.end_us
+                prev.text = new_txt
+                prev.ends_sentence = end_s
+                prev.char_tl_starts = prev.char_tl_starts + cue.char_tl_starts
+
+            if prev.text == "就是小孩" and cue.text == "的文化课":
+                _join("就是小孩的文化课", False)
                 continue
-            if ptxt == "这" and txt.startswith("当然要区别于"):
-                merged_cues[-1] = (pst, ed, "这" + txt, ends_s)
+            if prev.text.endswith("高一孩子") and cue.text == "验证":
+                _join(prev.text + "验证", True)
                 continue
-            if ptxt == "所以" and txt == "一旦选择了这条路":
-                merged_cues[-1] = (pst, ed, "所以一旦选择了这条路", ends_s)
+            if prev.text == "就能把您家小孩的名次" and cue.text == "拉下100来名":
+                _join("就能把您家小孩的名次拉下100来名", True)
                 continue
-            if ptxt == "甚至" and len(txt) <= 8:
-                merged_cues[-1] = (pst, ed, "甚至" + txt, ends_s)
+            if prev.text == "所以" and cue.text == "一旦选择了这条路":
+                _join("所以一旦选择了这条路", cue.ends_sentence)
                 continue
-            if ptxt == "他到了" and len(txt) <= 7:
-                merged_cues[-1] = (pst, ed, "他到了" + txt, ends_s)
+            if prev.text == "甚至" and len(cue.text) <= 8:
+                _join("甚至" + cue.text, cue.ends_sentence)
                 continue
-            if ptxt == "一门主科一样" and txt == "去对待":
-                merged_cues[-1] = (pst, ed, "一门主科一样去对待", True)
+            if prev.text == "他到了" and len(cue.text) <= 7:
+                _join("他到了" + cue.text, cue.ends_sentence)
                 continue
-            if ptxt == "读完了" and txt == "国美书法专业的本硕":
-                # Keep separated cleanly (<= 10 chars each)
-                merged_cues.append((st, ed, txt, ends_s))
+            if prev.text == "一门主科一样" and cue.text == "去对待":
+                _join("一门主科一样去对待", True)
+                continue
+            if prev.text == "读完了" and cue.text == "国美书法专业的本硕":
+                merged.append(cue)
                 continue
 
             if (
-                not p_ends
-                and _match_keyword_split(ptxt) is None
-                and _match_keyword_split(txt) is None
-                and (st - ped) <= 450_000
+                not prev.ends_sentence
+                and _match_keyword_split(prev.text) is None
+                and _match_keyword_split(cue.text) is None
+                and (cue.start_us - prev.end_us) <= 450_000
             ):
-                if len(ptxt) <= 3 and len(ptxt) + len(txt) <= 10:
-                    merged_cues[-1] = (pst, ed, ptxt + txt, ends_s)
-                    continue
-                if len(txt) <= 3 and len(ptxt) + len(txt) <= 10:
-                    merged_cues[-1] = (pst, ed, ptxt + txt, ends_s)
+                if (len(prev.text) <= 3 or len(cue.text) <= 3) and len(prev.text) + len(cue.text) <= 10:
+                    _join(prev.text + cue.text, cue.ends_sentence)
                     continue
 
-        merged_cues.append((st, ed, txt, ends_s))
+        merged.append(cue)
 
-    # Handle "的文化课一上高一就会上强度" split cleanly when preceded by "第一个准备呢" + "就是小孩"
-    polished: list[tuple[int, int, str]] = []
-    i = 0
-    while i < len(merged_cues):
-        st, ed, txt, _ = merged_cues[i]
-        if (
-            txt == "就是小孩"
-            and i + 1 < len(merged_cues)
-            and merged_cues[i + 1][2].startswith("的文化课")
-        ):
-            nxt_st, nxt_ed, nxt_txt, _ = merged_cues[i + 1]
-            rem = nxt_txt[4:].strip()
-            if rem:
-                mid = nxt_st + round((nxt_ed - nxt_st) * 4 / max(5, len(nxt_txt)))
-                polished.append((st, mid, "就是小孩的文化课"))
-                polished.append((mid, nxt_ed, rem))
-            else:
-                polished.append((st, nxt_ed, "就是小孩的文化课"))
-            i += 2
-            continue
-        if _match_keyword_split(txt) is not None or len(txt) <= 10:
-            polished.append((st, ed, txt))
-        else:
-            polished.extend(split_long_cue(txt, st, ed, max_chars=10))
-        i += 1
-    return polished
+    # Smooth tiny visual flicker gaps (<= 240ms) by gently extending prev.end_us to meet next.start_us
+    # (NEVER shifting start_us — start_us stays locked to exact spoken lip-sync!)
+    for a, b in zip(merged, merged[1:]):
+        gap = b.start_us - a.end_us
+        if 0 < gap <= 240_000:
+            a.end_us = b.start_us
+        elif gap < 0:
+            a.end_us = b.start_us
+
+    return merged
 
 
-def find_cue_range(cues: list[tuple[int, int, str]], keyword: str, after_us: int = 0) -> tuple[int, int] | None:
-    for st, ed, txt in cues:
-        if st >= after_us and keyword in txt:
-            return st, ed
+def find_cue(cues: list[TimedCue], keyword: str, after_us: int = 0) -> TimedCue | None:
+    for c in cues:
+        if c.start_us >= after_us and keyword in c.text:
+            return c
     return None
 
 
@@ -689,17 +778,6 @@ def patch_draft_postprocess(
     broll_window: tuple[int, int] | None = None,
     vignette_ranges: list[tuple[int, int]] | None = None,
 ) -> None:
-    """Post-process draft_content.json & draft_meta_info.json:
-    1. Attach Haixi 17-item beauty preset to Track 0 & Track 3 clips + mirror +10 dB gain into last_nonzero_volume.
-    2. Track 3 circular speaker PiP: clone independent material_id per segment (prevents mask-stroke loss on save!),
-       set crisp white single mask stroke + enable_mask_stroke=True on data screens (feather=0.0),
-       and soft feather=0.04 + enable_mask_stroke=False on B-roll top-right PiP.
-    3. Attach linear mask (feather=1.0, centerY=0.316) on top gradient dark shadow.
-    4. Patch Track 0 segment-level `模糊` to verified local cache & apply_target_type=0 (ZERO blur bleed!).
-    5. Inject restrained `暗角` focus track (max 3 beats).
-    6. Inject verified local JianYing `.ttf` paths, sync bold_width/shadow, enforce zero text strokes,
-       and apply two-tone white-header + yellow-body styling on data-screen lists.
-    """
     content_path = draft_dir / "draft_content.json"
     data = json.loads(content_path.read_text(encoding="utf-8"))
 
@@ -864,7 +942,7 @@ def patch_draft_postprocess(
             ve["source_platform"] = 1
             patched_blurs += 1
 
-    # Restrained `暗角` video effect track (at most 3 peak emotional beats)
+    # Restrained `暗角` focus track (max 3 beats)
     vignette_added = 0
     if vignette_ranges:
         eff_segments: list[dict[str, Any]] = []
@@ -921,7 +999,7 @@ def patch_draft_postprocess(
                 }
             )
 
-    # Patch text materials: local font cache, bold_width, zero-stroke, black shadow & two-tone data headers
+    # Patch text materials: local font cache, bold_width, zero-stroke, black shadow & two-tone headers
     patched_fonts = 0
     two_tone_patched = 0
     for mat in data.get("materials", {}).get("texts", []):
@@ -994,7 +1072,7 @@ def patch_draft_postprocess(
     )
 
 
-def write_srt(cues: list[tuple[int, int, str]], out_path: Path) -> None:
+def write_srt(cues: list[TimedCue], out_path: Path) -> None:
     def fmt(us: int) -> str:
         ms = max(0, us // 1000)
         h, rem = divmod(ms, 3_600_000)
@@ -1002,12 +1080,12 @@ def write_srt(cues: list[tuple[int, int, str]], out_path: Path) -> None:
         s, ms = divmod(rem, 1_000)
         return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
-    blocks = [f"{i}\n{fmt(st)} --> {fmt(ed)}\n{txt}\n" for i, (st, ed, txt) in enumerate(cues, start=1)]
+    blocks = [f"{i}\n{fmt(c.start_us)} --> {fmt(c.end_us)}\n{c.text}\n" for i, c in enumerate(cues, start=1)]
     out_path.write_text("\n".join(blocks), encoding="utf-8")
 
 
 def main() -> int:
-    # 1. Load ASR + acoustic silence log
+    # 1. Load ASR + acoustic silence map
     asr_raw = json.loads(ASR_JSON_PATH.read_text(encoding="utf-8"))
     if isinstance(asr_raw, list):
         asr_raw = asr_raw[0]
@@ -1018,7 +1096,7 @@ def main() -> int:
     video_dur_s = raw_probe.duration / 1_000_000.0
     print(f"[source] {RAW_VIDEO_PATH.name} ({raw_probe.width}x{raw_probe.height}, {video_dur_s:.2f}s)")
 
-    # 2. Compute rough-cut kept clips & synced 1.3x subtitle cues
+    # 2. Compute rough-cut kept clips & frame-accurate char-timestamp-synced 1.3x cues
     clips = compute_kept_clips(sentences, silences, video_dur_s)
     total_src_kept_s = sum(c.src_end - c.src_start for c in clips)
     total_tl_us = clips[-1].tl_start_us + clips[-1].tl_dur_us
@@ -1029,31 +1107,12 @@ def main() -> int:
         f"[rough-cut] {len(clips)} kept clips | raw {video_dur_s:.1f}s -> "
         f"kept {total_src_kept_s:.1f}s -> @1.3x = {total_tl_s:.2f}s"
     )
-    print(f"[subtitles] {len(cues)} synced cues")
+    print(f"[subtitles] {len(cues)} frame-accurate lip-synced cues")
 
     SCRATCH_OUT_DIR.mkdir(parents=True, exist_ok=True)
-    write_srt(cues, SCRATCH_OUT_DIR / "1115_1.3x_synced.srt")
-    (SCRATCH_OUT_DIR / "1115_cut_plan.json").write_text(
-        json.dumps(
-            {
-                "raw_duration_s": round(video_dur_s, 2),
-                "kept_1x_duration_s": round(total_src_kept_s, 2),
-                "timeline_1_3x_duration_s": round(total_tl_s, 2),
-                "playback_speed": PLAYBACK_SPEED,
-                "explicit_deletes": EXPLICIT_DELETE_RANGES,
-                "clips": [c.__dict__ for c in clips],
-                "subtitles": [
-                    {"start_s": round(a / 1e6, 2), "end_s": round(b / 1e6, 2), "text": t}
-                    for a, b, t in cues
-                ],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    write_srt(cues, SCRATCH_OUT_DIR / "1115_v2_1.3x_synced.srt")
 
-    # 3. Create brand-new self-contained JianYing draft (never touches user's original draft!)
+    # 3. Create brand-new self-contained JianYing draft (`v2`, leaves original & v1 untouched!)
     folder = DraftFolder(str(JIANYING_DRAFTS_ROOT))
     script = folder.create_draft(
         NEW_DRAFT_NAME,
@@ -1071,8 +1130,11 @@ def main() -> int:
     self_contained_vid = copy_asset(RAW_VIDEO_PATH, asset_vid_dir, "1115_raw.mp4")
     raw_mat = VideoMaterial(str(self_contained_vid))
 
-    # Self-contained BGM + SFX
-    bgm_path = copy_asset(DRAFT1_AUDIO_DIR / "55c164ff20b76d77a0d845b1ad74522f.mp3", asset_aud_dir, "bgm_chinese_zither.mp3")
+    # 3-Act Pure-Instrumental BGM Assets + Sparse SFX
+    bgm_act1 = copy_asset(BGM_ACT1_SRC, asset_aud_dir, "bgm_act1_light_promo.mp3")
+    bgm_act2 = copy_asset(BGM_ACT2_SRC, asset_aud_dir, "bgm_act2_yunhai_calm.mp3")
+    bgm_act3 = copy_asset(BGM_ACT3_SRC, asset_aud_dir, "bgm_act3_inspiring_hope.mp3")
+
     sfx_drop = copy_asset(DRAFT1_AUDIO_DIR / "fd8b75a140bba2a6bad77df92e6598dd.mp3", asset_aud_dir, "sfx_water_drop.mp3")
     sfx_dong = copy_asset(DRAFT1_AUDIO_DIR / "4c4801715dbe9272b61a6d0fa1f4d6f6.mp3", asset_aud_dir, "sfx_dong.mp3")
     sfx_ding = copy_asset(DRAFT1_AUDIO_DIR / "26fac03104a2059d7c1bb4ecd0eccb4d.mp3", asset_aud_dir, "sfx_dingdong.mp3")
@@ -1080,25 +1142,27 @@ def main() -> int:
     sfx_stamp = copy_asset(DRAFT1_AUDIO_DIR / "f2c28329e88e189b89fa16f59fc65464.mp3", asset_aud_dir, "sfx_stamp.mp3")
     sfx_page = copy_asset(DRAFT1_AUDIO_DIR / "bcebdd78f3173216cb1aaae12f7dd291.mp3", asset_aud_dir, "sfx_page.mp3")
 
-    # Self-contained visually-verified Grade 1/2 proof & personal credential images
+    # Fresh, visually-verified assets (distinct from 261115!)
     img_black_field = copy_asset(BLACK_FIELD_PATH, asset_img_dir, "top_shadow_black.png")
-    img_haixi_609 = copy_asset(
-        DRAFT1_VIDEO_DIR / "1164_穿校服的女生在校园树下留影，下方展板写着“海晞（609.5分）年级排名8 中国美术学院”.jpg",
+
+    # 3 ALL-NEW vertical Haixi IP B-roll photos (never used in 261115!)
+    img_ip_redgate = copy_asset(
+        IP_ROOT_DIR / r"01_人像\1042_学员身着学士服站在“国立艺术学院”红色门楼前，展示毕业或结业成果.jpg",
         asset_img_dir,
-        "00_海晞609分国美校园.jpg",
+        "00_国立艺院红门楼学士服.jpg",
     )
-    img_gm_diploma = copy_asset(
-        DRAFT1_VIDEO_DIR / "03_中国美术学院毕业证书封皮.jpg",
+    img_ip_scholarship = copy_asset(
+        PROOF_ROOT_DIR / r"07_成绩结果图\00_原始素材\076_手持中国美术学院书法学院2023年度学习奖学金证书，含“海晞”书法条幅.jpg",
         asset_img_dir,
-        "00_国美毕业证封皮.jpg",
+        "00_国美书法学院奖学金.jpg",
     )
-    img_gm_master = copy_asset(
-        DRAFT1_VIDEO_DIR / "02_国美硕士毕业_蓝色硕士服红立柱.jpg",
+    img_ip_calligraphy_wall = copy_asset(
+        IP_ROOT_DIR / r"05_作品字画\红色背景墙上的立体字招牌，写着“書法學院”及英文“SCHOOL OF CALLIGRAPHY”，左侧有“晞”字印章.jpg",
         asset_img_dir,
-        "00_国美硕士毕业照.jpg",
+        "00_书法学院红墙印章.jpg",
     )
 
-    # Opening hook (distinct Grade 1 posters — never reused later!)
+    # Opening hook (fresh Grade 1 posters)
     img_hook_zhungaoyi = copy_asset(
         PROOF_ROOT_DIR / r"02_上课讲评图\01_高一\581_【准高一】线上集训招生海报，展示篆书作品及群内教学截图，宣传28届20天零基础篆书学习.jpg",
         asset_img_dir,
@@ -1109,131 +1173,136 @@ def main() -> int:
         asset_img_dir,
         "02_提前抢跑的高一学生.jpg",
     )
-    # 300 families / verified by Grade 1 students
-    img_rank1 = copy_asset(
-        DRAFT1_VIDEO_DIR / "286_展示全省统考第一的成绩截图、聊天记录及学生反馈，含“全省状元”“总分267.0”字样.jpg",
+
+    # Fresh 300-family / Grade-1 proof (different from 261115!)
+    img_sd_277 = copy_asset(
+        PROOF_GAOSAN_DIR / r"1011_宣传图，突出山东书法统考高分过线277.4分与网课集训效果.jpg",
         asset_img_dir,
-        "03_省统考第1名.jpg",
+        "03_山东统考277.4分.jpg",
     )
-    img_rank3 = copy_asset(
-        DRAFT1_VIDEO_DIR / "294_展示2026年吉林省统考成绩截图及微信聊天记录，明确显示总分265分、全省第3名.jpg",
+    img_top10 = copy_asset(
+        PROOF_GAOSAN_DIR / r"1013_红底喜报，标注统考前10，配成绩查询截图与沟通记录.jpg",
         asset_img_dir,
-        "04_省统考第3名.jpg",
+        "04_省统考前10喜报.jpg",
     )
-    img_g1_zhuanshu = copy_asset(
-        PROOF_ROOT_DIR / r"05_进步对比图\01_高一\935_书法海海线上特训营高一书法生篆书课程线上集训前后对比.jpg",
+    img_g1_kaishu = copy_asset(
+        PROOF_ROOT_DIR / r"05_进步对比图\01_高一\142_展示高一学生楷书创作“前”后对比，左侧为初学，右侧为进步后的作品，标注日期26.2.6.jpg",
         asset_img_dir,
-        "05_高一篆书前后对比.jpg",
+        "05_高一楷书前后对比.jpg",
     )
-    # Top universities (公办/985/211/国美央美)
-    img_gm_2nd = copy_asset(
-        PROOF_GAOSAN_DIR / "008_展示一名书法考生从复读到国美全国第二的录取成果，含分数、名次及录取喜报.jpg",
+
+    # Top university proof (fresh 国美刷屏名单 + 打码央美通知书)
+    img_gm_wall = copy_asset(
+        PROOF_GAOSAN_DIR / r"112_微信群聊接龙截图，展示多名学员“国美合格”的录取名单，含“国美刷屏”水印.jpg",
         asset_img_dir,
-        "06_国美全国第二.jpg",
+        "06_国美合格刷屏接龙.jpg",
     )
     img_ym_notice = copy_asset(
         PROOF_GAOSAN_DIR / "20261104_中央美术学院录取通知书与入学手册（姓名贴纸打码版）.png",
         asset_img_dir,
         "07_央美录取通知书打码版.png",
     )
-    # Treat as major subject + online system + 1v1 critique
+
+    # Treat calligraphy as major subject (clean Grade 1 system + personal live lesson notes)
     img_g1_kaogang = copy_asset(
         PROOF_ROOT_DIR / r"02_上课讲评图\01_高一\462_红色背景宣传图，展示“特训营高一全程同学”及专属学习群讲评实况，列出考纲体系课等课程卖点.jpg",
         asset_img_dir,
         "08_高一考纲体系课.jpg",
     )
-    img_plan_doc_036 = copy_asset(
-        PROOF_ROOT_DIR / r"01_学生规划图\07_通用\036_海老师给学员“桐桐”制定的学习计划文档，包含每日基础任务、视频学习、书写练习及月度考核安排.png",
-        asset_img_dir,
-        "09_定制个人学习计划.png",
-    )
     img_g1_kegao = copy_asset(
         PROOF_ROOT_DIR / r"02_上课讲评图\01_高一\372_右侧竖排大字“高一全程同学专属课稿”，背景为水波纹，下方展示一张写有“浑”“见”等字的书法作业纸.jpg",
         asset_img_dir,
-        "10_高一全程专属课稿.jpg",
+        "09_高一全程专属课稿.jpg",
     )
-    img_1v1 = copy_asset(DRAFT1_VIDEO_DIR / "05_1v1讲评_v3.png", asset_img_dir, "11_1v1讲评.png")
-    # Exam system & 5-point deduction stakes
+
+    # 4 REAL INK-ON-RICE-PAPER MOCK EXAM SHEETS (replaces bloated text wall during 应试书法!)
+    img_exam_kai = copy_asset(EXAM_SHEETS_DIR / "楷书临摹.jpg", asset_img_dir, "10_模考真卷_楷书临摹.jpg")
+    img_exam_xing = copy_asset(EXAM_SHEETS_DIR / "行书临摹.jpg", asset_img_dir, "11_模考真卷_行书临摹.jpg")
+    img_exam_zhuan = copy_asset(EXAM_SHEETS_DIR / "篆书创作.jpg", asset_img_dir, "12_模考真卷_篆书创作.jpg")
+    img_exam_li = copy_asset(EXAM_SHEETS_DIR / "隶书创作.jpg", asset_img_dir, "13_模考真卷_隶书创作.jpg")
+
+    # Exam system & stakes
     img_tixike_508 = copy_asset(
         PROOF_ROOT_DIR / r"01_学生规划图\07_通用\508_课程宣传图，展示“流程①体系课展示”，列出技法、繁体字、书法史等课程模块及对应视频资料.jpg",
         asset_img_dir,
-        "12_应试体系课展示.jpg",
+        "14_应试体系课模块.jpg",
     )
-    img_rank7 = copy_asset(
-        DRAFT1_VIDEO_DIR / "300_展示学生书法统考成绩268.8000分及全省第7名的喜报截图.jpg",
-        asset_img_dir,
-        "13_省统考第7名.jpg",
-    )
-    # Data Screen #3A (Weekend 40 min planning) + Grade 1/2 dramatic progress comparisons
+
+    # Act 3: Weekend planning + dramatic Grade 1/2 progress + Holiday/Supervision airy reveals
     img_plan_g1 = copy_asset(
         PROOF_ROOT_DIR / r"01_学生规划图\01_高一\001_这是一张宣传海报，主体为“书法海海线上教育”的“高一”课程推广。画面包含两份微信聊天记录截图，内容涉及书法学习规划、隶书课程资料及作业安排，.jpg",
         asset_img_dir,
-        "14_高一学习规划表.jpg",
+        "15_高一学习规划表.jpg",
     )
     img_g1_10d = copy_asset(
         PROOF_ROOT_DIR / r"05_进步对比图\01_高一\735_书法线上集训宣传海报，展示2v1辅导、专属学习群及高一同学10天进步对比.jpg",
         asset_img_dir,
-        "15_高一10天进步对比.jpg",
+        "16_高一10天进步对比.jpg",
     )
     img_g1_xingshu_20d = copy_asset(
         PROOF_ROOT_DIR / r"05_进步对比图\01_高一\146_展示高一同学行书作品“前”后对比，标注“20天效果”及日期“26.4.10”.jpg",
         asset_img_dir,
-        "16_高一行书20天对比.jpg",
+        "17_高一行书20天对比.jpg",
     )
     img_g1_beats_g3 = copy_asset(
         PROOF_ROOT_DIR / r"02_上课讲评图\01_高一\478_展示学生小篆作业与聊天记录，红框圈出老师讲评“不错”的反馈，标注“标记辅助线”“调整字形”.jpg",
         asset_img_dir,
-        "17_高一写得超很多高三集训生.jpg",
+        "18_高一写得超很多高三集训生.jpg",
     )
     img_g2_district1 = copy_asset(
         PROOF_ROOT_DIR / r"07_成绩结果图\02_高二\233_海报“报喜 区第一”，展示高二同学考试讲评聊天：“这个篆书分数是全区第一”.jpg",
         asset_img_dir,
-        "18_高二篆书全区第一.jpg",
+        "19_高二篆书全区第一.jpg",
     )
-    # Data Screen #3B (Holidays + traditional/seal character memorization pack)
     img_g1_summer = copy_asset(
         PROOF_ROOT_DIR / r"02_上课讲评图\01_高一\527_展示学生暑期篆书临摹作业，背景为美术学院，右侧附带家长群聊天记录反馈.jpg",
         asset_img_dir,
-        "19_准高一暑期学习.jpg",
+        "20_准高一暑期学习.jpg",
     )
     img_g1_daibei = copy_asset(
         PROOF_ROOT_DIR / r"02_上课讲评图\01_高一\628_宣传海报展示“高一线上全程”课程，含带背资料包及美术学院背景.jpg",
         asset_img_dir,
-        "20_高一全程带背资料包.jpg",
-    )
-    # Closing trust loop (6 distinct verified posters)
-    img_plan_g1_2v1 = copy_asset(
-        PROOF_ROOT_DIR / r"01_学生规划图\01_高一\002_这是一张宣传海报，主体为书法培训机构的线上辅导内容。画面展示了学生练习的隶书作品（依据横画蚕头燕尾特征），并配有微信聊天记录截图，内容涉及学.jpeg",
-        asset_img_dir,
-        "21_高一专属2V1规划.jpeg",
-    )
-    img_g2_lishu_20d = copy_asset(
-        PROOF_ROOT_DIR / r"05_进步对比图\02_高二\141_展示高二学生隶书创作的前后对比，左侧为前，右侧为后，中间有箭头连接.jpg",
-        asset_img_dir,
-        "22_高二隶书20天对比.jpg",
-    )
-    img_group_critique = copy_asset(
-        DRAFT1_VIDEO_DIR / "11_专属学习群逐字讲评海报_红黄绿线标注示范.jpg",
-        asset_img_dir,
-        "23_专属学习群逐字讲评.jpg",
+        "21_高一全程带背资料包.jpg",
     )
     img_duxue_14 = copy_asset(
         DRAFT1_VIDEO_DIR / "14_专属督学海报_不止督促作业更关心练习状态.jpeg",
         asset_img_dir,
-        "24_专属日常督学海报.jpeg",
+        "22_专属日常督学海报.jpeg",
     )
-    img_parent_thanks = copy_asset(
-        DRAFT1_VIDEO_DIR / "28_喜报海报_分数比预期高_家长致谢不走弯路.png",
+
+    # Closing trust loop (fresh Grade 1/2 posters)
+    img_plan_g1_2v1 = copy_asset(
+        PROOF_ROOT_DIR / r"01_学生规划图\01_高一\002_这是一张宣传海报，主体为书法培训机构的线上辅导内容。画面展示了学生练习的隶书作品（依据横画蚕头燕尾特征），并配有微信聊天记录截图，内容涉及学.jpeg",
         asset_img_dir,
-        "25_家长致谢不走弯路喜报.png",
+        "23_高一专属2V1规划.jpeg",
+    )
+    img_g2_lishu_20d = copy_asset(
+        PROOF_ROOT_DIR / r"05_进步对比图\02_高二\141_展示高二学生隶书创作的前后对比，左侧为前，右侧为后，中间有箭头连接.jpg",
+        asset_img_dir,
+        "24_高二隶书20天对比.jpg",
+    )
+    img_g1_zhuanshu = copy_asset(
+        PROOF_ROOT_DIR / r"05_进步对比图\01_高一\935_书法海海线上特训营高一书法生篆书课程线上集训前后对比.jpg",
+        asset_img_dir,
+        "25_高一篆书前后对比.jpg",
+    )
+    img_group_critique = copy_asset(
+        DRAFT1_VIDEO_DIR / "11_专属学习群逐字讲评海报_红黄绿线标注示范.jpg",
+        asset_img_dir,
+        "26_专属学习群逐字讲评.jpg",
     )
     img_g1_lishu_15d = copy_asset(
         PROOF_ROOT_DIR / r"05_进步对比图\01_高一\108_展示高一学生隶书创作“前”后对比，画面包含“书法海海线上特训营”、“2V1精品辅导”及“15天效果”字样.jpg",
         asset_img_dir,
-        "26_高一隶书15天前后对比.jpg",
+        "27_高一隶书15天前后对比.jpg",
+    )
+    img_parent_thanks = copy_asset(
+        DRAFT1_VIDEO_DIR / "28_喜报海报_分数比预期高_家长致谢不走弯路.png",
+        asset_img_dir,
+        "28_家长致谢不走弯路喜报.png",
     )
 
-    # 4. Declare tracks in clean z-order (identical proven architecture to v13!)
+    # 4. Declare tracks in clean z-order (including TWO crossfading BGM tracks for 3-act progression!)
     script.append_track(TrackSpec(TrackType.video, name="主视频_1.3x粗剪"))
     script.append_track(TrackSpec(TrackType.video, name="章节与数据暗底_黑场"))
     script.append_track(TrackSpec(TrackType.video, name="全屏背书_Broll"))
@@ -1250,40 +1319,34 @@ def main() -> int:
     script.append_track(TrackSpec(TrackType.text, name="顶部常驻标题_上行"))
     script.append_track(TrackSpec(TrackType.text, name="顶部常驻标题_下行"))
 
-    script.append_track(TrackSpec(TrackType.audio, name="BGM_古筝轻音乐"))
+    script.append_track(TrackSpec(TrackType.audio, name="BGM_段落1与3"))
+    script.append_track(TrackSpec(TrackType.audio, name="BGM_段落2"))
     script.append_track(TrackSpec(TrackType.audio, name="音效点缀"))
 
     def cue_st(kw: str, fallback_s: float, after_us: int = 0) -> int:
-        hit = find_cue_range(cues, kw, after_us=after_us)
-        return hit[0] if hit else sec_to_us(fallback_s)
+        c = find_cue(cues, kw, after_us=after_us)
+        return c.start_us if c else sec_to_us(fallback_s)
 
     def cue_ed(kw: str, fallback_s: float, after_us: int = 0) -> int:
-        hit = find_cue_range(cues, kw, after_us=after_us)
-        return hit[1] if hit else sec_to_us(fallback_s)
+        c = find_cue(cues, kw, after_us=after_us)
+        return c.end_us if c else sec_to_us(fallback_s)
 
-    # Exact structural windows anchored directly to synced 1.3x speech cues!
+    # 3 Sleek Minimalist Numbered Chapter Breaths (2.0-2.8s, lighter & fresher than 261115!)
+    # (Act 3 transition at 169s uses music lift instead of a 4th repetitive banner!)
     chapter_windows: list[tuple[int, int, str]] = [
-        (cue_st("第一个准备", 27.33), cue_ed("就会上强度", 30.83), "准备一\n文化课上强度"),
-        (cue_st("第二个准备", 58.08), cue_ed("比初中快多了", 61.32), "准备二\n老师快 难随大流"),
-        (cue_st("第三个准备", 137.73), cue_ed("小学", 140.28, after_us=137_000_000), "准备三\n兴趣≠应试书法"),
-        (cue_st("所以", 169.26, after_us=168_500_000), cue_ed("应试体系", 172.77), "高一落地\n切换应试+挤时间"),
+        (cue_st("第一个准备", 27.33), cue_ed("就是小孩的文化课", 29.50), "01\n文化课直接上强度"),
+        (cue_st("第二个准备", 58.08), cue_ed("就是高中的老师", 60.20), "02\n老师快 难随大流"),
+        (cue_st("第三个准备", 137.73), cue_ed("他可能小学", 140.20, after_us=137_000_000), "03\n兴趣≠应试书法"),
     ]
 
+    # ONLY ONE Data-Separation Screen (strictly for the genuine numeric ratio 30%/70% vs 50%/50%!)
     ds1_st, ds1_ed = cue_st("以前的高校录取", 44.88), cue_ed("五五开", 52.24)
-    ds2_st, ds2_ed = cue_st("应试书法呢", 148.16), cue_ed("成就感满满了", 159.64)
-    ds3a_st, ds3a_ed = cue_st("像我们高一", 178.24), cue_ed("练习时间", 184.74)
-    ds3b_st, ds3b_ed = cue_st("那除了周末以外", 193.86), cue_ed("督学老师监督", 204.84)
-
     data_sep_windows: list[tuple[int, int, float, float, float]] = [
-        # (start_us, end_us, blur_pct, veil_alpha, speaker_y) — exact v9/v12/v13 top-center y=0.597!
         (ds1_st, ds1_ed, 45.0, 0.42, 0.597),
-        (ds2_st, ds2_ed, 45.0, 0.42, 0.597),
-        (ds3a_st, ds3a_ed, 42.0, 0.38, 0.597),
-        (ds3b_st, ds3b_ed, 42.0, 0.38, 0.597),
     ]
 
     blur_windows: list[tuple[int, int, float]] = [
-        (st, ed, 50.0) for st, ed, _ in chapter_windows
+        (st, ed, 45.0) for st, ed, _ in chapter_windows
     ] + [
         (st, ed, bp) for st, ed, bp, _, _ in data_sep_windows
     ]
@@ -1295,9 +1358,7 @@ def main() -> int:
                 return bp
         return None
 
-    # 5. Stage 1 + 2: Main rough-cut video track at 1.3x speed & +10 dB voice gain
-    #    - Split cleanly at blur_boundaries so segment-level `模糊` (apply_target_type=0) applies ONLY to Track 0
-    #    - Opening 0-4.2s smooth push-in keyframe (1.00 -> 1.08)
+    # 5. Main rough-cut video track (1.3x, +10 dB, Track-0-only segment blur, 0-4.2s smooth push-in)
     for clip in clips:
         c_st = clip.tl_start_us
         c_ed = clip.tl_start_us + clip.tl_dur_us
@@ -1361,16 +1422,16 @@ def main() -> int:
             added += 1
         return added
 
-    # 5a. Crisp semi-transparent black bars (4 chapter dividers) & full-frame dark veils (4 data screens) on Track 1
+    # 5a. Sleeker chapter bars (scale_y=0.68, lighter feel!) + 1 clean numeric data veil
     black_mat = VideoMaterial(str(img_black_field), material_name="黑场")
     for ch_st, ch_ed, _ in chapter_windows:
         bar_seg = VideoSegment(
             black_mat,
             Timerange(ch_st, ch_ed - ch_st),
-            clip_settings=ClipSettings(transform_x=0.0, transform_y=-0.069, scale_x=1.0, scale_y=0.827, alpha=0.50),
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=-0.05, scale_x=1.0, scale_y=0.68, alpha=0.48),
         )
-        bar_seg.add_animation(IntroType.渐显, "0.25s")
-        bar_seg.add_animation(OutroType.渐隐, "0.22s")
+        bar_seg.add_animation(IntroType.渐显, "0.22s")
+        bar_seg.add_animation(OutroType.渐隐, "0.20s")
         script.add_segment(bar_seg, "章节与数据暗底_黑场")
 
     data_cpip_total = 0
@@ -1385,24 +1446,24 @@ def main() -> int:
         script.add_segment(veil_seg, "章节与数据暗底_黑场")
         data_cpip_total += add_circular_speaker_pip(ds_st, ds_ed, px=0.0, py=sp_y, pscale=0.40)
     print(
-        f"[chapter+data] added {len(chapter_windows)} crisp chapter dividers + "
-        f"{len(data_sep_windows)} data-separated screens ({data_cpip_total} circular speaker clips)"
+        f"[chapter+data] added {len(chapter_windows)} sleek numbered chapter breaths + "
+        f"1 clean numeric comparison screen ({data_cpip_total} circular speaker clips)"
     )
 
-    # 5b. Full-screen credential B-roll ("书法高考这条路我走了11年 ... 国美书法专业的本硕")
+    # 5b. ALL-NEW Full-screen credential B-roll ("书法高考这条路我走了11年 ... 国美书法专业的本硕")
     b_st = cue_st("书法高考这条路", 11.80)
     b_ed = cue_ed("国美书法专业的本硕", 17.24)
     broll_window: tuple[int, int] | None = None
     if b_ed > b_st + 1_500_000:
         b_dur = b_ed - b_st
         broll_window = (b_st, b_ed)
-        d1 = round(b_dur * 0.34)
-        d2 = round(b_dur * 0.32)
+        d1 = round(b_dur * 0.35)
+        d2 = round(b_dur * 0.33)
         d3 = b_dur - d1 - d2
         broll_photos = [
-            (img_haixi_609, b_st, d1, 1.04, 1.10, 0.02),
-            (img_gm_diploma, b_st + d1, d2, 1.48, 1.56, 0.00),
-            (img_gm_master, b_st + d1 + d2, d3, 1.15, 1.22, -0.02),
+            (img_ip_redgate,          b_st,           d1, 1.04, 1.10, 0.00),
+            (img_ip_scholarship,      b_st + d1,      d2, 1.04, 1.10, 0.00),
+            (img_ip_calligraphy_wall, b_st + d1 + d2, d3, 1.42, 1.50, 0.00),
         ]
         for bimg, pst, pdur, sc0, sc1, by in broll_photos:
             bmat = VideoMaterial(str(bimg))
@@ -1417,9 +1478,9 @@ def main() -> int:
             bseg.add_keyframe(KeyframeProperty.scale_y, pdur, sc1)
             script.add_segment(bseg, "全屏背书_Broll")
         add_circular_speaker_pip(b_st, b_ed, px=0.523, py=0.580, pscale=0.50)
-        print(f"[broll] added 3 full-screen 国美 credential photos + top-right circular PiP ({b_st/1e6:.2f}s-{b_ed/1e6:.2f}s)")
+        print(f"[broll] added 3 ALL-NEW vertical 国美 IP photos + top-right soft circular PiP ({b_st/1e6:.2f}s-{b_ed/1e6:.2f}s)")
 
-    # 6. Top gradient dark shadow + persistent two-line title (`清刻本悦`), auto-cut around B-roll, chapters & data screens!
+    # 6. Top gradient dark shadow + persistent two-line title (`清刻本悦`), auto-cut around B-roll, chapters & data screen
     cutout_windows: list[tuple[int, int]] = []
     if broll_window is not None:
         cutout_windows.append(broll_window)
@@ -1476,9 +1537,7 @@ def main() -> int:
             top_line2.add_animation(TextIntro.向上弹入, "0.35s")
         script.add_segment(top_line2, "顶部常驻标题_下行")
 
-    # 7 & 8. Single-line subtitles (<=10 chars!) + paired keyword-split highlights
-    #        - Regular cues: y=-0.56 (or y=-0.49 stacked with keyword at y=-0.69)
-    #        - Inside data-separation screens ONLY: drop to y=-0.729 (keyword relays at y=-0.708)
+    # 7 & 8. Frame-accurate single-line subtitles + lip-synced paired emphasis keywords
     sub_style = TextStyle(
         size=13.5,
         color=COLOR_WHITE,
@@ -1494,7 +1553,7 @@ def main() -> int:
 
     def in_data_window(st_us: int, ed_us: int) -> bool:
         mid = (st_us + ed_us) // 2
-        return any(ds_st - 120_000 <= mid <= ds_ed + 200_000 for ds_st, ds_ed, _, _, _ in data_sep_windows)
+        return any(ds_st - 100_000 <= mid <= ds_ed + 150_000 for ds_st, ds_ed, _, _, _ in data_sep_windows)
 
     sfx_map = {
         "drop": sfx_drop,
@@ -1510,24 +1569,29 @@ def main() -> int:
     popup_count = 0
     sub_count = 0
 
-    for st, ed, txt in cues:
+    for cue in cues:
+        st, ed, txt = cue.start_us, cue.end_us, cue.text
         is_data_cue = in_data_window(st, ed)
         hit_kw = _match_keyword_split(txt)
         rule_key = f"{hit_kw[0]}|{hit_kw[1]}" if hit_kw is not None else ""
-        if hit_kw is not None and rule_key not in used_kw_rules and (ed - st) >= 650_000:
+        if hit_kw is not None and rule_key not in used_kw_rules and (ed - st) >= 600_000:
             main_t, kw_t, kw_sz, kw_anim, sfx_k, sfx_v = hit_kw
             used_kw_rules.add(rule_key)
 
-            total_len = max(1, len(main_t) + len(kw_t))
-            ratio = len(main_t) / total_len
-            kw_st = st + int((ed - st) * ratio) - 80_000
-            kw_st = max(st + 180_000, min(ed - 420_000, kw_st))
+            # EXACT spoken char start for the keyword's first syllable!
+            main_compact_len = len(PUNCT_RE.sub("", main_t))
+            if cue.char_tl_starts and main_compact_len < len(cue.char_tl_starts):
+                kw_st = cue.char_tl_starts[main_compact_len] - 40_000
+            else:
+                ratio = len(main_t) / max(1, len(main_t) + len(kw_t))
+                kw_st = st + int((ed - st) * ratio) - 40_000
+            kw_st = max(st + 160_000, min(ed - 360_000, kw_st))
             if kw_st < last_kw_end + 80_000:
                 kw_st = last_kw_end + 80_000
             kw_dur = ed - kw_st
 
-            if is_data_cue and kw_dur >= 350_000:
-                main_dur = max(180_000, kw_st - st)
+            if is_data_cue and kw_dur >= 320_000:
+                main_dur = max(160_000, kw_st - st)
                 tseg = TextSegment(
                     main_t,
                     Timerange(st, main_dur),
@@ -1554,7 +1618,7 @@ def main() -> int:
                 sub_count += 1
                 kw_y = -0.69
 
-            if kw_dur >= 350_000:
+            if kw_dur >= 320_000:
                 kseg = TextSegment(
                     kw_t,
                     Timerange(kw_st, kw_dur),
@@ -1564,95 +1628,96 @@ def main() -> int:
                     border=None,
                     shadow=kw_shadow,
                 )
-                kseg.add_animation(kw_anim, "0.3s")
+                kseg.add_animation(kw_anim, "0.28s")
                 script.add_segment(kseg, "重点大字包装")
                 sfx_events.append((kw_st, sfx_map[sfx_k], sfx_v))
                 last_kw_end = ed
                 popup_count += 1
         else:
-            # Safety cap: if an unmatched cue somehow exceeded 10 chars, split it cleanly!
-            parts_safe = [(st, ed, txt)] if len(txt) <= 10 else split_long_cue(txt, st, ed, max_chars=10)
-            for pst, ped, ptxt in parts_safe:
-                tseg = TextSegment(
-                    ptxt,
-                    Timerange(pst, ped - pst),
-                    font=FontType.金陵体,
-                    style=sub_style,
-                    clip_settings=sub_clip_data if is_data_cue else sub_clip_normal,
-                    border=None,
-                    shadow=sub_shadow,
-                )
-                script.add_segment(tseg, "字幕_金陵体")
-                sub_count += 1
+            tseg = TextSegment(
+                txt,
+                Timerange(st, ed - st),
+                font=FontType.金陵体,
+                style=sub_style,
+                clip_settings=sub_clip_data if is_data_cue else sub_clip_normal,
+                border=None,
+                shadow=sub_shadow,
+            )
+            script.add_segment(tseg, "字幕_金陵体")
+            sub_count += 1
 
-    print(f"[subtitles] placed {sub_count} single-line main cues (<=10 chars) + {popup_count} paired keyword highlights")
+    print(f"[subtitles] placed {sub_count} frame-accurate main cues (<=10 chars) + {popup_count} lip-synced keywords")
 
-    # 9. 100% Collision-Free Real `06_交付知识库` PiPs + Native Animated Data Lists & 4 Chapter Dividers
+    # 9. Bespoke, Airy, Content-Driven Visual Choreography (Real Mock Exam Sheets + Fresh Grade 1/2 Proof!)
+    #    ZERO bloated text walls, ZERO copy-paste clone screens, 100% 2D zone-collision free!
+    ex_st1 = cue_st("对碑帖理解", 149.16)
+    ex_st2 = cue_st("切换的临摹", 151.30)
+    ex_end = cue_st("以前在书法兴趣班", 154.76)
+
+    wk_st = cue_st("像我们高一", 178.24)
+    wk_ed = cue_ed("练习时间", 184.74)
+
     pip_plan: list[tuple[str, str, Path, float, float, float, int, int, IntroType, Path | None]] = [
-        # --- 黄金前3秒开场钩子 (0.40s-3.60s): 准高一集训 + 高一抢跑 (绝不与后文重复!) ---
-        ("LEFT",   "画中画_左", img_hook_zhungaoyi, -0.62, 0.08, 0.34, 400_000,   3_600_000, IntroType.向右滑动, sfx_whoosh),
-        ("RIGHT",  "画中画_右", img_hook_qiangpao,   0.62, 0.08, 0.34, 700_000,   3_600_000, IntroType.向左滑动, None),
+        # --- 黄金前3秒开场钩子 (0.40s-3.50s): 准高一集训 + 高一抢跑 ---
+        ("LEFT",   "画中画_左", img_hook_zhungaoyi, -0.62, 0.08, 0.34, 400_000,   3_500_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT",  "画中画_右", img_hook_qiangpao,   0.62, 0.08, 0.34, 700_000,   3_500_000, IntroType.向左滑动, None),
 
-        # --- 全国近300家庭/高一验证 (18.54s-23.60s) ---
-        ("LEFT",   "画中画_左", img_rank1,          -0.64, 0.12, 0.31, 18_540_000, 23_600_000, IntroType.向右滑动, sfx_page),
-        ("RIGHT",  "画中画_右", img_rank3,           0.64, 0.12, 0.31, 18_900_000, 23_600_000, IntroType.向左滑动, None),
-        ("CENTER", "画中画_中", img_g1_zhuanshu,     0.00, 0.15, 0.28, 20_800_000, 23_600_000, IntroType.向上滑动, None),
+        # --- 全国近300家庭/高一验证 (全新未复用素材: 山东277.4 + 统考前10 + 高一楷书对比) ---
+        ("LEFT",   "画中画_左", img_sd_277,         -0.64, 0.12, 0.31, cue_st("给全国", 18.54),        23_600_000, IntroType.向右滑动, sfx_page),
+        ("RIGHT",  "画中画_右", img_top10,           0.64, 0.12, 0.31, cue_st("给全国", 18.54) + 380_000, 23_600_000, IntroType.向左滑动, None),
+        ("CENTER", "画中画_中", img_g1_kaishu,       0.00, 0.15, 0.28, cue_st("其中总结", 20.79),      23_600_000, IntroType.向上滑动, None),
 
-        # --- 公办本科 / 985 / 211 / 国美央美 (52.50s-57.70s, 紧接数据屏#1后、章节#2前) ---
-        ("LEFT",   "画中画_左", img_gm_2nd,         -0.62, 0.08, 0.34, 52_500_000, 57_700_000, IntroType.向右滑动, sfx_whoosh),
-        ("RIGHT",  "画中画_右", img_ym_notice,       0.62, 0.08, 0.34, 53_100_000, 57_700_000, IntroType.向左滑动, None),
+        # --- 公办本科 / 985 / 211 / 国美央美 (紧接三七开/五五开数据屏后) ---
+        ("LEFT",   "画中画_左", img_gm_wall,        -0.62, 0.08, 0.34, ds1_ed + 300_000, chapter_windows[1][0] - 250_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT",  "画中画_右", img_ym_notice,       0.62, 0.08, 0.34, ds1_ed + 700_000, chapter_windows[1][0] - 250_000, IntroType.向左滑动, None),
 
-        # --- 把书法当成一门主科规划 + 学了会用会考 (127.60s-137.40s, 严格在章节#3前收尾) ---
-        ("LEFT",   "画中画_左", img_g1_kaogang,     -0.62, 0.08, 0.34, 127_600_000, 132_400_000, IntroType.向右滑动, sfx_page),
-        ("RIGHT",  "画中画_右", img_plan_doc_036,    0.62, 0.08, 0.34, 128_000_000, 132_400_000, IntroType.向左滑动, None),
-        ("LEFT",   "画中画_左", img_g1_kegao,       -0.62, 0.08, 0.34, 133_200_000, 137_400_000, IntroType.向右滑动, sfx_whoosh),
-        ("RIGHT",  "画中画_右", img_1v1,             0.62, 0.08, 0.34, 133_600_000, 137_400_000, IntroType.向左滑动, None),
+        # --- 把书法当成一门主科规划 + 学了会用会考 (留白呼吸，单对依次切换) ---
+        ("RIGHT",  "画中画_右", img_g1_kaogang,      0.62, 0.08, 0.34, cue_st("必须把它当做", 127.40), cue_st("甚至像我们", 133.34) - 100_000, IntroType.向左滑动, sfx_page),
+        ("LEFT",   "画中画_左", img_g1_kegao,       -0.62, 0.08, 0.34, cue_st("甚至像我们", 133.34),   chapter_windows[2][0] - 150_000, IntroType.向右滑动, sfx_whoosh),
 
-        # --- 考场错字扣5分拉下100来名 (160.20s-168.80s, 严格在数据屏#2后、章节#4前) ---
-        ("LEFT",   "画中画_左", img_tixike_508,     -0.62, 0.08, 0.34, 160_200_000, 164_800_000, IntroType.向右滑动, sfx_page),
-        ("RIGHT",  "画中画_右", img_rank7,           0.62, 0.08, 0.34, 165_000_000, 168_800_000, IntroType.向左滑动, sfx_drop),
+        # --- 应试书法考什么 (彻底摒弃大段堆字！直接上 4 张真实模考宣纸真卷：楷书/行书 -> 篆书/隶书!) ---
+        ("LEFT",   "画中画_左", img_exam_kai,       -0.62, 0.10, 0.34, ex_st1,            ex_st2 + 500_000, IntroType.向右滑动, sfx_page),
+        ("RIGHT",  "画中画_右", img_exam_xing,       0.62, 0.10, 0.34, ex_st1 + 450_000,  ex_st2 + 500_000, IntroType.向左滑动, None),
+        ("LEFT",   "画中画_左", img_exam_zhuan,     -0.62, 0.10, 0.34, ex_st2 + 650_000,  ex_end,           IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT",  "画中画_右", img_exam_li,         0.62, 0.10, 0.34, ex_st2 + 950_000,  ex_end,           IntroType.向左滑动, None),
 
-        # --- 数据屏#3A 右侧配图 (178.40s-184.74s): 左文右图错位，零叠字 ---
-        ("RIGHT",  "画中画_右", img_plan_g1,         0.54, -0.06, 0.34, ds3a_st + 200_000, ds3a_ed, IntroType.向左滑动, sfx_page),
+        # --- 考场错字扣5分拉下100名: 单侧克制呈现应试体系课，把视觉重心留给大字痛点 ---
+        ("LEFT",   "画中画_左", img_tixike_508,     -0.62, 0.08, 0.34, cue_st("但真正上了", 159.70), cue_st("都要", 163.92, after_us=160_000_000) + 400_000, IntroType.向右滑动, sfx_page),
 
-        # --- 高一高二真实进步 + 高二超越高三集训生 (185.45s-193.65s) ---
-        ("LEFT",   "画中画_左", img_g1_10d,         -0.62, 0.08, 0.34, 185_450_000, 189_100_000, IntroType.向右滑动, sfx_whoosh),
-        ("RIGHT",  "画中画_右", img_g1_xingshu_20d,  0.62, 0.08, 0.34, 185_800_000, 189_100_000, IntroType.向左滑动, None),
-        ("LEFT",   "画中画_左", img_g1_beats_g3,    -0.62, 0.08, 0.34, 189_400_000, 193_650_000, IntroType.向右滑动, sfx_page),
-        ("RIGHT",  "画中画_右", img_g2_district1,    0.62, 0.08, 0.34, 189_800_000, 193_650_000, IntroType.向左滑动, None),
+        # --- 第三幕 · 平时周末节奏 (正常清晰口播 + 左极简3行提示 + 右规划表，清爽不克隆!) ---
+        ("RIGHT",  "画中画_右", img_plan_g1,         0.60, 0.08, 0.34, wk_st + 200_000,   wk_ed, IntroType.向左滑动, sfx_page),
 
-        # --- 数据屏#3B 右侧配图 (194.20s-204.84s): 准高一暑期学习 + 全程带背资料包 ---
-        ("RIGHT",  "画中画_右", img_g1_summer,       0.54, -0.06, 0.34, ds3b_st + 350_000, 199_000_000, IntroType.向左滑动, sfx_drop),
-        ("RIGHT",  "画中画_右", img_g1_daibei,       0.54, -0.06, 0.34, 199_200_000,       ds3b_ed,     IntroType.向左滑动, sfx_page),
+        # --- 高一高二真实进步 + 高二超越高三集训生 ---
+        ("LEFT",   "画中画_左", img_g1_10d,         -0.62, 0.08, 0.34, cue_st("他到了高二", 184.88), cue_st("领悟能力", 188.55) + 300_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT",  "画中画_右", img_g1_xingshu_20d,  0.62, 0.08, 0.34, cue_st("他到了高二", 184.88) + 350_000, cue_st("领悟能力", 188.55) + 300_000, IntroType.向左滑动, None),
+        ("LEFT",   "画中画_左", img_g1_beats_g3,    -0.62, 0.08, 0.34, cue_st("领悟能力", 188.55) + 550_000, cue_st("那除了周末以外", 193.86) - 100_000, IntroType.向右滑动, sfx_page),
+        ("RIGHT",  "画中画_右", img_g2_district1,    0.62, 0.08, 0.34, cue_st("领悟能力", 188.55) + 850_000, cue_st("那除了周末以外", 193.86) - 100_000, IntroType.向左滑动, None),
 
-        # --- 结尾服务价值与转化闭环 (215.20s-228.67s): 3组4~4.5秒稳步成对展示，绝不闪切 ---
+        # --- 寒暑假真题 / 繁篆带背 / 专门督学: 疏朗单侧轮播，每段只亮一侧，绝不塞满画面! ---
+        ("RIGHT",  "画中画_右", img_g1_summer,       0.62, 0.08, 0.34, cue_st("那除了周末以外", 193.86), cue_st("繁体字", 199.13, after_us=193_000_000) - 100_000, IntroType.向左滑动, sfx_drop),
+        ("LEFT",   "画中画_左", img_g1_daibei,      -0.62, 0.08, 0.34, cue_st("繁体字", 199.13, after_us=193_000_000), cue_st("加上线上", 202.08, after_us=198_000_000) - 100_000, IntroType.向右滑动, sfx_page),
+        ("RIGHT",  "画中画_右", img_duxue_14,        0.62, 0.08, 0.34, cue_st("加上线上", 202.08, after_us=198_000_000), cue_st("我今天急着", 207.90, after_us=204_000_000) - 200_000, IntroType.向左滑动, sfx_drop),
+
+        # --- 结尾真诚邀约与信任闭环 (215.2s-228.7s): 3组稳步呈现，零闪切 ---
         ("LEFT",   "画中画_左", img_plan_g1_2v1,    -0.62, 0.10, 0.34, 215_200_000, 219_500_000, IntroType.向右滑动, sfx_page),
         ("RIGHT",  "画中画_右", img_g2_lishu_20d,    0.62, 0.10, 0.34, 215_500_000, 219_500_000, IntroType.向左滑动, None),
-        ("LEFT",   "画中画_左", img_group_critique, -0.62, 0.10, 0.34, 219_800_000, 224_200_000, IntroType.向右滑动, sfx_whoosh),
-        ("RIGHT",  "画中画_右", img_duxue_14,        0.62, 0.10, 0.34, 220_100_000, 224_200_000, IntroType.向左滑动, None),
-        ("LEFT",   "画中画_左", img_parent_thanks,  -0.62, 0.10, 0.34, 224_500_000, total_tl_us, IntroType.向右滑动, sfx_page),
-        ("RIGHT",  "画中画_右", img_g1_lishu_15d,    0.62, 0.10, 0.34, 224_800_000, total_tl_us, IntroType.向左滑动, None),
+        ("LEFT",   "画中画_左", img_g1_zhuanshu,    -0.62, 0.10, 0.34, 219_800_000, 224_100_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT",  "画中画_右", img_group_critique,  0.62, 0.10, 0.34, 220_100_000, 224_100_000, IntroType.向左滑动, None),
+        ("LEFT",   "画中画_左", img_g1_lishu_15d,   -0.62, 0.10, 0.34, 224_400_000, total_tl_us, IntroType.向右滑动, sfx_page),
+        ("RIGHT",  "画中画_右", img_parent_thanks,   0.62, 0.10, 0.34, 224_700_000, total_tl_us, IntroType.向左滑动, None),
     ]
 
+    # ONLY crisp, ultra-short, breathable native text (max 4-8 chars/line — ZERO clipping!)
     side_text_plan: list[tuple[str, str, str, float, float, float, int, int, TextIntro]] = [
-        # 章节分段 #1
-        ("CENTER", "侧边原生文字_右", chapter_windows[0][2], 0.00, -0.04, 25.0, chapter_windows[0][0], chapter_windows[0][1], TextIntro.向上弹入),
-        # 数据分离屏 #1 — 以前三七开 vs 现在五五开 (双色层次: 白标题+黄内容)
-        ("LEFT",   "侧边原生文字_左", "以前录取\n文化 30%\n专业 70%\n靠专业拉分", -0.50, -0.06, 15.5, ds1_st, ds1_ed, TextIntro.打字机_I),
-        ("RIGHT",  "侧边原生文字_右", "现在录取\n文化 50%\n专业 50%\n文化不能丢",  0.50, -0.06, 15.5, cue_st("但现在基本没有了", 49.59), ds1_ed, TextIntro.向上弹入),
-        # 章节分段 #2
-        ("CENTER", "侧边原生文字_右", chapter_windows[1][2], 0.00, -0.04, 25.0, chapter_windows[1][0], chapter_windows[1][1], TextIntro.向上弹入),
-        # 章节分段 #3
-        ("CENTER", "侧边原生文字_右", chapter_windows[2][2], 0.00, -0.04, 25.0, chapter_windows[2][0], chapter_windows[2][1], TextIntro.向上弹入),
-        # 数据分离屏 #2 — 应试书法 vs 兴趣班书法
-        ("LEFT",   "侧边原生文字_左", "应试书法\n碑帖精准度\n多体临摹创作\n繁体字与篆字", -0.50, -0.06, 15.0, ds2_st, ds2_ed, TextIntro.打字机_I),
-        ("RIGHT",  "侧边原生文字_右", "兴趣班书法\n老师哄着写\n抄几幅作品\n拿比赛奖状",   0.50, -0.06, 15.0, cue_st("以前在书法兴趣班", 154.76), ds2_ed, TextIntro.打字机_I),
-        # 章节分段 #4
-        ("CENTER", "侧边原生文字_右", chapter_windows[3][2], 0.00, -0.04, 25.0, chapter_windows[3][0], chapter_windows[3][1], TextIntro.向上弹入),
-        # 数据分离屏 #3A — 平时周末怎么挤时间 (左文右图)
-        ("LEFT",   "侧边原生文字_左", "平时周末\n每周 1~2 天\n每天 40 分钟\n稳扎专业底子", -0.50, -0.06, 15.0, ds3a_st, ds3a_ed, TextIntro.打字机_I),
-        # 数据分离屏 #3B — 寒暑假/小长假提分 (左文右图)
-        ("LEFT",   "侧边原生文字_左", "假期提分\n寒暑假小长假\n考纲真题训练\n繁篆带背+督学", -0.50, -0.06, 15.0, ds3b_st, ds3b_ed, TextIntro.打字机_I),
+        # 3 处极简编号章节呼吸条 (双行 20pt, 左右宽裕留白!)
+        ("CENTER", "侧边原生文字_右", chapter_windows[0][2], 0.00, -0.04, 20.0, chapter_windows[0][0], chapter_windows[0][1], TextIntro.开幕),
+        # 唯一 1 处纯数字对比分离屏 (以前 30%/70% vs 现在 50%/50% — 每行<=4字，四周宽裕留白!)
+        ("LEFT",   "侧边原生文字_左", "以前录取\n文化 30%\n专业 70%", -0.48, -0.04, 16.0, ds1_st, ds1_ed, TextIntro.打字机_I),
+        ("RIGHT",  "侧边原生文字_右", "现在录取\n文化 50%\n专业 50%",  0.48, -0.04, 16.0, cue_st("但现在基本没有了", 49.59), ds1_ed, TextIntro.向上弹入),
+        ("CENTER", "侧边原生文字_右", chapter_windows[1][2], 0.00, -0.04, 20.0, chapter_windows[1][0], chapter_windows[1][1], TextIntro.开幕),
+        ("CENTER", "侧边原生文字_右", chapter_windows[2][2], 0.00, -0.04, 20.0, chapter_windows[2][0], chapter_windows[2][1], TextIntro.开幕),
+        # 平时周末极简 3 行节奏提示 (仅 12.5pt 靠左安全留白，右侧配高一规划图!)
+        ("LEFT",   "侧边原生文字_左", "周末节奏\n每周1-2天\n每天40分钟", -0.52, 0.10, 12.5, wk_st, wk_ed, TextIntro.向下露出),
     ]
 
     # Hard in-script 2D space-time collision gate + >=1.4s no-flash-cut gate!
@@ -1687,7 +1752,7 @@ def main() -> int:
         if sfx_p is not None:
             sfx_events.append((st, sfx_p, 1.0))
         pip_count += 1
-    print(f"[pip] added {pip_count} collision-free real 交付知识库 PiPs")
+    print(f"[pip] added {pip_count} collision-free fresh PiPs (including 4 real mock-exam calligraphy sheets!)")
 
     side_added = 0
     for z, tname, label, sx, sy, ssz, st, ed, anim in side_text_plan:
@@ -1703,48 +1768,72 @@ def main() -> int:
             border=None,
             shadow=TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0),
         )
-        sseg.add_animation(anim, "0.35s")
+        sseg.add_animation(anim, "0.32s")
         script.add_segment(sseg, tname)
         side_added += 1
-    print(f"[side-text] added {side_added} collision-free native JianYing callouts & chapter titles")
+    print(f"[side-text] added {side_added} clean minimalist native callouts & chapter breaths")
 
-    # 9b. 3 restrained `暗角` focus accents (max 3!)
+    # 9b. 3 restrained `暗角` focus accents
     vignette_ranges: list[tuple[int, int]] = []
     for vkw, extra_dur in [
         ("当头一棒", 1_500_000),
         ("拉下100来名", 1_600_000),
         ("把孩子好好的底子", 1_600_000),
     ]:
-        vhit = find_cue_range(cues, vkw)
-        if vhit:
-            vst = max(0, vhit[0] - 100_000)
+        vc = find_cue(cues, vkw)
+        if vc:
+            vst = max(0, vc.start_us - 100_000)
             vdur = min(extra_dur, total_tl_us - vst)
             if vdur >= 600_000:
                 vignette_ranges.append((vst, vdur))
 
-    # 10. Looped BGM at -15 dB (0.1778)
-    bgm_mat = AudioMaterial(str(bgm_path))
-    bgm_cursor = 0
-    bgm_segs = 0
-    while bgm_cursor < total_tl_us:
-        rem = total_tl_us - bgm_cursor
-        seg_dur = min(bgm_mat.duration, rem)
-        aseg = AudioSegment(
-            bgm_mat,
-            Timerange(bgm_cursor, seg_dur),
-            source_timerange=Timerange(0, seg_dur),
-            volume=0.1778,
-        )
-        if bgm_cursor == 0:
-            aseg.add_fade("0.8s", "0s")
-        if bgm_cursor + seg_dur >= total_tl_us:
-            aseg.add_fade("0s", "2.0s")
-        script.add_segment(aseg, "BGM_古筝轻音乐")
-        bgm_cursor += seg_dur
-        bgm_segs += 1
-    print(f"[bgm] added {bgm_segs} looped BGM segments (vol=0.1778 ≈ -15 dB)")
+    # 10. 3-Act Mood-Matched Pure-Instrumental BGM with Smooth Loudness-Calibrated Crossfades!
+    #     - Act 1 (0 -> act2_cut + 0.3s) on `BGM_段落1与3`: 轻快的宣传音乐 (vol=0.120)
+    #     - Act 2 (act2_cut - 0.3s -> act3_cut + 0.3s) on `BGM_段落2`: 云海（治愈纯音乐）(vol=0.520)
+    #     - Act 3 (act3_cut - 0.3s -> total_tl_us) on `BGM_段落1与3`: 鼓舞人心和励志的流行音乐 (vol=0.148)
+    act2_cut_us = chapter_windows[1][0]  # ~58.08s ("第二个准备呢...")
+    act3_cut_us = cue_st("所以", 169.26, after_us=168_500_000)  # ~169.26s ("所以高一一定要把业余练字切换到应试体系...")
+    xfade_half = 350_000  # 0.7s total gentle crossfade overlap across separate audio tracks!
 
-    # 11. Sparse deduplicated SFX accents (0 dB ~ 1.25)
+    def add_bgm_span(
+        track_name: str,
+        bgm_file: Path,
+        span_start_us: int,
+        span_end_us: int,
+        vol: float,
+        fade_in: str,
+        fade_out: str,
+    ) -> int:
+        mat = AudioMaterial(str(bgm_file))
+        cursor = span_start_us
+        cnt = 0
+        while cursor < span_end_us:
+            rem = span_end_us - cursor
+            seg_dur = min(mat.duration, rem)
+            aseg = AudioSegment(
+                mat,
+                Timerange(cursor, seg_dur),
+                source_timerange=Timerange(0, seg_dur),
+                volume=vol,
+            )
+            fi = fade_in if cursor == span_start_us else "0.4s"
+            fo = fade_out if cursor + seg_dur >= span_end_us else "0.4s"
+            aseg.add_fade(fi, fo)
+            script.add_segment(aseg, track_name)
+            cursor += seg_dur
+            cnt += 1
+        return cnt
+
+    n_b1 = add_bgm_span("BGM_段落1与3", bgm_act1, 0, act2_cut_us + xfade_half, 0.120, "0.8s", "1.2s")
+    n_b2 = add_bgm_span("BGM_段落2",    bgm_act2, act2_cut_us - xfade_half, act3_cut_us + xfade_half, 0.520, "1.0s", "1.2s")
+    n_b3 = add_bgm_span("BGM_段落1与3", bgm_act3, act3_cut_us - xfade_half, total_tl_us, 0.148, "1.0s", "2.2s")
+    print(
+        f"[bgm-3act] Act1(0-{act2_cut_us/1e6:.2f}s, 轻快的宣传音乐 vol=0.120, {n_b1} seg) -> "
+        f"Act2({act2_cut_us/1e6:.2f}-{act3_cut_us/1e6:.2f}s, 云海 vol=0.520, {n_b2} seg) -> "
+        f"Act3({act3_cut_us/1e6:.2f}-{total_tl_s:.2f}s, 鼓舞人心 vol=0.148, {n_b3} seg)"
+    )
+
+    # 11. Sparse deduplicated SFX accents
     sfx_mat_cache: dict[Path, AudioMaterial] = {}
     sfx_last_end = 0
     sfx_added = 0
@@ -1764,7 +1853,7 @@ def main() -> int:
         sfx_added += 1
     print(f"[sfx] added {sfx_added} sparse SFX accents")
 
-    # 12. Save draft + post-process beauty, masks, mask strokes, vignettes, verified local fonts & meta info
+    # 12. Save draft + post-process
     script.save()
     patch_draft_postprocess(
         draft_dir,
