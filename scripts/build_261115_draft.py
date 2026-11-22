@@ -54,12 +54,9 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v2"
 
-RAW_VIDEO_PATH = Path(
-    r"D:\Software\剪映\JianyingPro Drafts\261115书法生想上国美央美\video"
-    r"\IOS_ALBUM@C9E3502E-DB9B-44B4-840F-A96EB5C16179_L0_001@1794747834000.mp4"
-)
+RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 ASR_JSON_PATH = Path(
     r"C:\Users\jiely\.gemini\antigravity\brain\66a1cadc-f2f0-47fd-890f-b411ed01293a"
     r"\scratch\asr_261115\逐字稿\IOS_ALBUM@C9E3502E-DB9B-44B4-840F-A96EB5C16179_L0_001@1794747834000.json"
@@ -604,8 +601,13 @@ def main() -> int:
         allow_replace=True,
     )
     draft_dir = JIANYING_DRAFTS_ROOT / NEW_DRAFT_NAME
+    asset_vid_dir = draft_dir / "assets" / "video"
     asset_img_dir = draft_dir / "assets" / "images"
     asset_aud_dir = draft_dir / "assets" / "audio"
+
+    # Copy raw video into draft's own assets/video/ so the draft is 100% self-contained
+    self_contained_vid = copy_asset(RAW_VIDEO_PATH, asset_vid_dir, "261115_raw.mp4")
+    raw_mat = VideoMaterial(str(self_contained_vid))
 
     # Copy self-contained BGM, SFX, and verified proof images into new draft folder
     bgm_path = copy_asset(DRAFT1_AUDIO_DIR / "55c164ff20b76d77a0d845b1ad74522f.mp3", asset_aud_dir, "bgm_chinese_zither.mp3")
