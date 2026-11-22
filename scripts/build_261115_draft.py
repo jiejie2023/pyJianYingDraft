@@ -54,7 +54,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v4"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v5"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -346,57 +346,120 @@ def clean_subtitle_text(text: str) -> str:
 
 
 def _smart_chinese_split(chunk: str, max_chars: int) -> list[str]:
-    """Split a Chinese clause at natural semantic boundaries instead of mid-word."""
+    """Recursively split a Chinese clause at natural semantic boundaries so EVERY part <= max_chars."""
+    chunk = chunk.strip()
     if len(chunk) <= max_chars:
-        return [chunk]
+        return [chunk] if chunk else []
     # Preferred natural break tokens (break BEFORE these words)
-    break_before = ["以及", "而且", "但是", "或者", "并且", "就是", "其实", "最后", "同时", "然后", "直接", "利用", "能够", "已经", "和", "给", "把", "去", "在", "到"]
+    break_before = [
+        "以及", "而且", "但是", "或者", "并且", "就是", "其实", "最后", "同时",
+        "然后", "直接", "利用", "能够", "已经", "如果", "因为", "所以", "比如",
+        "到底", "如何", "怎么", "绝不要", "不要", "可以", "应该", "还是", "或者",
+        "全国", "各省", "书法", "文化", "专业", "国美", "央美", "和", "给", "把", "去", "在", "到",
+    ]
     # Preferred break AFTER these tokens
-    break_after = ["的", "了", "啊", "呢", "吧", "上", "中", "里", "后", "前"]
+    break_after = ["的", "了", "啊", "呢", "吧", "上", "中", "里", "后", "前", "是", "有"]
     mid = len(chunk) // 2
+    min_left = max(2, len(chunk) - max_chars)
+    max_left = min(len(chunk) - 2, max_chars)
     best_idx = None
     best_dist = 999
-    for tok in break_before:
-        pos = chunk.find(tok, 4, len(chunk) - 3)
-        if pos != -1 and abs(pos - mid) < best_dist:
+
+    # Prefer whitespace boundary first if present within valid range
+    for m in re.finditer(r"\s+", chunk):
+        pos = m.start()
+        if min_left <= pos <= max_left and abs(pos - mid) < best_dist:
             best_dist = abs(pos - mid)
             best_idx = pos
-    if best_idx is None or best_dist > 5:
+
+    if best_idx is None:
+        for tok in break_before:
+            start_search = max(2, min_left)
+            pos = chunk.find(tok, start_search)
+            while pos != -1 and pos <= max_left:
+                if abs(pos - mid) < best_dist:
+                    best_dist = abs(pos - mid)
+                    best_idx = pos
+                pos = chunk.find(tok, pos + 1)
+
+    if best_idx is None or best_dist > 4:
         for tok in break_after:
-            pos = chunk.find(tok, 4, len(chunk) - 4)
-            if pos != -1:
+            pos = chunk.find(tok, 1)
+            while pos != -1:
                 cand = pos + len(tok)
-                if abs(cand - mid) < best_dist:
+                if min_left <= cand <= max_left and abs(cand - mid) < best_dist:
                     best_dist = abs(cand - mid)
                     best_idx = cand
+                pos = chunk.find(tok, pos + 1)
+
     if best_idx is None:
-        best_idx = mid
+        best_idx = min(max_left, max(min_left, mid))
+
     left = chunk[:best_idx].strip()
     right = chunk[best_idx:].strip()
-    return [p for p in (left, right) if p]
+    out: list[str] = []
+    if left:
+        out.extend(_smart_chinese_split(left, max_chars))
+    if right:
+        out.extend(_smart_chinese_split(right, max_chars))
+    return out
 
 
-def split_long_cue(text: str, start_us: int, end_us: int, max_chars: int = 14) -> list[tuple[int, int, str]]:
-    """Split a long subtitle sentence cleanly at punctuation or natural semantic breaks."""
+# Paired emphasis-split rules (SOP: main subtitle <= 10 chars on top + highlighted keyword split below, ZERO duplication!)
+# Format: (match_text, main_text_le_10, kw_text, kw_color, kw_font, kw_scale, kw_anim, sfx_name, sfx_vol)
+KEYWORD_SPLIT_RULES: list[tuple[str, str, str, tuple[float, float, float], FontType, float, TextIntro, str, float]] = [
+    ("从本科读到硕士 一共七年", "从本科读到硕士", "一共七年", COLOR_YELLOW, FontType.金陵体, 1.48, TextIntro.向上弹入, "drop", 0.45),
+    ("每年很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", COLOR_YELLOW, FontType.金陵体, 1.42, TextIntro.向上弹入, "ding", 0.48),
+    ("很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", COLOR_YELLOW, FontType.金陵体, 1.42, TextIntro.向上弹入, "ding", 0.48),
+    ("最后都硬生生的折在了文化分上", "最后都硬生生的", "折在了文化分上", COLOR_PINK, FontType.新青年体, 1.38, TextIntro.缩小, "dong", 0.42),
+    ("平时死守文化课", "平时死守", "文化课", COLOR_YELLOW, FontType.金陵体, 1.55, TextIntro.向上弹入, "ding", 0.46),
+    ("就一个 不低于本省的本科线", "就一个", "不低于本省本科线", COLOR_YELLOW, FontType.金陵体, 1.32, TextIntro.左移弹动, "drop", 0.45),
+    ("竟然可以悬殊100分", "竟然可以", "悬殊100分!", COLOR_PINK, FontType.新青年体, 1.55, TextIntro.缩小, "stamp", 0.46),
+    ("去画室机构烧钱集训", "去画室机构", "烧钱集训", COLOR_PINK, FontType.新青年体, 1.50, TextIntro.向上弹入, "dong", 0.40),
+    ("就可以让小孩尽早接触篆刻科目啦", "就可以让小孩尽早接触", "篆刻科目", COLOR_YELLOW, FontType.金陵体, 1.48, TextIntro.左移弹动, "ding", 0.48),
+    ("校考科目有大半的分数都在篆刻", "校考科目有大半的分数", "都在篆刻", COLOR_PINK, FontType.新青年体, 1.52, TextIntro.缩小, "stamp", 0.46),
+    ("直接占了分数的大半壁江山", "直接占了分数的", "大半壁江山", COLOR_YELLOW, FontType.金陵体, 1.45, TextIntro.向上弹入, "drop", 0.45),
+    ("绝不要彻底丢掉文化课", "绝不要彻底丢掉", "文化课", COLOR_PINK, FontType.新青年体, 1.55, TextIntro.缩小, "dong", 0.42),
+    ("那么可以留下书法艺考", "那么可以留下", "书法艺考", COLOR_YELLOW, FontType.金陵体, 1.50, TextIntro.向上弹入, "ding", 0.50),
+]
+
+
+def _match_keyword_split(text: str) -> tuple[str, str, tuple[float, float, float], FontType, float, TextIntro, str, float] | None:
+    norm = re.sub(r"\s+", " ", text).strip()
+    for pat, main_t, kw_t, col, fnt, sc, anim, sfx_k, sfx_v in KEYWORD_SPLIT_RULES:
+        if norm == pat or pat in norm:
+            return (main_t, kw_t, col, fnt, sc, anim, sfx_k, sfx_v)
+    return None
+
+
+def split_long_cue(text: str, start_us: int, end_us: int, max_chars: int = 10) -> list[tuple[int, int, str]]:
+    """Split a subtitle sentence cleanly so EVERY regular subtitle cue <= max_chars (10 chars)."""
     dur = end_us - start_us
-    if len(text) <= max_chars or dur < 700_000:
-        clean = re.sub(r"[，。、；：,]+", " ", text).strip()
-        return [(start_us, end_us, clean)]
+    # If this sentence matches an explicit keyword-split rule, keep intact for paired main+keyword splitting!
+    if _match_keyword_split(re.sub(r"[，。、；：,]+", " ", text).strip()) is not None:
+        return [(start_us, end_us, re.sub(r"[，。、；：,]+", " ", text).strip())]
+
+    clean_single = re.sub(r"[，。、；：,]+", " ", text).strip()
+    if len(clean_single) <= max_chars:
+        return [(start_us, end_us, clean_single)]
 
     # Split on strong & soft punctuation first
     parts = [p.strip() for p in re.split(r"[，。！？、；：,]", text) if p.strip()]
     merged: list[str] = []
     for part in parts:
-        if merged and len(merged[-1]) + 1 + len(part) <= max_chars:
+        # Don't merge a trailing province fragment ("内蒙") onto a digit-ending score ("吉林340")
+        if merged and merged[-1][-1].isdigit() and part == "内蒙":
+            merged.append(part)
+        elif merged and len(merged[-1]) + 1 + len(part) <= max_chars:
             merged[-1] = merged[-1] + " " + part
-        elif merged and len(part) <= 2:
+        elif merged and len(part) <= 2 and len(merged[-1]) + len(part) <= max_chars:
             merged[-1] = merged[-1] + part
         else:
             merged.append(part)
 
     final_parts: list[str] = []
     for chunk in merged:
-        if len(chunk) <= max_chars + 1:
+        if len(chunk) <= max_chars:
             final_parts.append(chunk)
         else:
             final_parts.extend(_smart_chinese_split(chunk, max_chars))
@@ -409,7 +472,7 @@ def split_long_cue(text: str, start_us: int, end_us: int, max_chars: int = 14) -
             nxt = end_us
         else:
             share = round(dur * len(part) / total_chars)
-            nxt = min(end_us - 120_000, cur + max(250_000, share))
+            nxt = min(end_us - 100_000, cur + max(200_000, share))
         if nxt > cur:
             cues.append((cur, nxt, part))
             cur = nxt
@@ -417,7 +480,7 @@ def split_long_cue(text: str, start_us: int, end_us: int, max_chars: int = 14) -
 
 
 def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) -> list[tuple[int, int, str]]:
-    """Convert ASR sentences into clean, non-overlapping 1.3x timeline subtitle cues."""
+    """Convert ASR sentences into clean, non-overlapping 1.3x timeline subtitle cues (<= 10 chars unless keyword-split)."""
     raw_cues: list[tuple[int, int, str, bool]] = []  # (start_us, end_us, text, ends_sentence)
 
     for sent in sentences:
@@ -438,6 +501,9 @@ def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) 
         elif abs(sa - 37.61) < 0.2:
             sb = 42.50
             txt = "太清楚书法校考以及全国各省统考的评分逻辑是怎么样的"
+        elif abs(sa - 173.95) < 0.2:
+            # Keep 内蒙 open so it merges cleanly with next "400" cue
+            txt = "而我们再来看一些北方城市，黑龙江380，吉林340，内蒙"
 
         if is_deleted_source(sa, sb):
             continue
@@ -456,11 +522,11 @@ def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) 
         if t0 is None or t1 is None or t1 - t0 < 120_000:
             continue
 
-        sub_parts = split_long_cue(clean_txt, t0, t1, max_chars=14)
+        sub_parts = split_long_cue(clean_txt, t0, t1, max_chars=10)
         for idx_p, (pst, ped, ptxt) in enumerate(sub_parts):
             raw_cues.append((pst, ped, ptxt, ends_sentence and idx_p == len(sub_parts) - 1))
 
-    # Merge short fragments (<= 3 chars) cleanly without crossing sentence boundaries!
+    # Merge tiny fragments cleanly without exceeding 10 chars (except explicit keyword-split sentences!)
     merged_cues: list[tuple[int, int, str, bool]] = []
     for st, ed, txt, ends_s in sorted(raw_cues, key=lambda x: x[0]):
         if merged_cues:
@@ -469,18 +535,39 @@ def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) 
                 st = ped
             if ed <= st + 90_000:
                 continue
-            # Merge forward into next cue if previous cue was very short (like "今天", "家长", "400")
-            if not p_ends and len(ptxt) <= 3 and (st - ped) <= 400_000 and len(ptxt) + len(txt) <= 15:
-                sep = " " if (ptxt[-1].isdigit() or txt[0].isdigit()) else ""
-                merged_cues[-1] = (pst, ed, ptxt + sep + txt, ends_s)
-                continue
-            # Merge tiny trailing word into previous cue (like "内蒙" + "400", "马上" + "掉头")
-            if not p_ends and len(txt) <= 3 and (st - ped) <= 400_000 and len(ptxt) + len(txt) <= 15:
+            # Special merge: "每年" + "很多孩子拿到了国央的合格证" -> full keyword-split sentence
+            if ptxt == "每年" and "很多孩子拿到了" in txt:
                 merged_cues[-1] = (pst, ed, ptxt + txt, ends_s)
                 continue
+            # Special merge: "内蒙" + "400" -> "内蒙400"
+            if ptxt == "内蒙" and txt == "400":
+                merged_cues[-1] = (pst, ed, "内蒙400", True)
+                continue
+            # Merge short fragment ONLY if result stays <= 10 chars and doesn't cross sentence boundary
+            if (
+                not p_ends
+                and _match_keyword_split(ptxt) is None
+                and _match_keyword_split(txt) is None
+                and (st - ped) <= 400_000
+            ):
+                if len(ptxt) <= 3 and len(ptxt) + len(txt) <= 10:
+                    sep = " " if (ptxt[-1].isdigit() or txt[0].isdigit()) else ""
+                    if len(ptxt) + len(sep) + len(txt) <= 10:
+                        merged_cues[-1] = (pst, ed, ptxt + sep + txt, ends_s)
+                        continue
+                if len(txt) <= 3 and len(ptxt) + len(txt) <= 10:
+                    merged_cues[-1] = (pst, ed, ptxt + txt, ends_s)
+                    continue
         merged_cues.append((st, ed, txt, ends_s))
 
-    return [(st, ed, txt) for st, ed, txt, _ in merged_cues]
+    # Final pass: guarantee any cue not matched by a keyword-split rule is strictly <= 10 chars
+    final_cues: list[tuple[int, int, str]] = []
+    for st, ed, txt, _ in merged_cues:
+        if _match_keyword_split(txt) is not None or len(txt) <= 10:
+            final_cues.append((st, ed, txt))
+        else:
+            final_cues.extend(split_long_cue(txt, st, ed, max_chars=10))
+    return final_cues
 
 
 def find_cue_range(cues: list[tuple[int, int, str]], keyword: str, after_us: int = 0) -> tuple[int, int] | None:
@@ -820,80 +907,94 @@ def main() -> int:
     top_line2.add_animation(TextIntro.向上弹入, "0.4s")
     script.add_segment(top_line2, "顶部常驻标题_下行")
 
-    # 7. Add subtitles: 金陵体 (or 俊雅体), size 13.5 (13~14), lower-middle (y=-0.56),
-    #    NO border/stroke + black shadow 85% (80-90%)
+    # 7 & 8. Add single-line subtitles (STRICTLY <= 10 chars!) + paired keyword-split highlights
+    #        - Regular cue: 金陵体 size 13.5, y=-0.56, #FFFFFF, NO stroke, 85% shadow
+    #        - Paired keyword-split cue (SOP):
+    #            * Main track: <=10-char prefix at y=-0.49 (full sentence duration)
+    #            * Emphasis track: trailing core keyword at y=-0.69 (#FFF29D / #FF619D, scaled up,
+    #              enters when spoken and exits synchronized with main subtitle — ZERO duplication!)
     sub_style = TextStyle(
         size=13.5,
         color=COLOR_WHITE,
         align=1,
         auto_wrapping=True,
-        max_line_width=0.84,
+        max_line_width=0.90,
     )
-    sub_clip = ClipSettings(transform_x=0.0, transform_y=-0.56, scale_x=1.0, scale_y=1.0)
+    sub_clip_normal = ClipSettings(transform_x=0.0, transform_y=-0.56, scale_x=1.0, scale_y=1.0)
+    sub_clip_paired = ClipSettings(transform_x=0.0, transform_y=-0.49, scale_x=1.0, scale_y=1.0)
     sub_shadow = TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
+    kw_shadow = TextShadow(alpha=0.88, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
+
+    sfx_map = {
+        "drop": sfx_drop,
+        "dong": sfx_dong,
+        "ding": sfx_ding,
+        "whoosh": sfx_whoosh,
+        "stamp": sfx_stamp,
+        "page": sfx_page,
+    }
+    sfx_events: list[tuple[int, Path, float]] = []
+    used_kw_rules: set[str] = set()
+    last_kw_end = 0
+    popup_count = 0
+    sub_count = 0
 
     for st, ed, txt in cues:
-        tseg = TextSegment(
-            txt,
-            Timerange(st, ed - st),
-            font=FontType.金陵体,
-            style=sub_style,
-            clip_settings=sub_clip,
-            border=None,
-            shadow=sub_shadow,
-        )
-        script.add_segment(tseg, "字幕_金陵体")
+        hit_kw = _match_keyword_split(txt)
+        rule_key = f"{hit_kw[0]}|{hit_kw[1]}" if hit_kw is not None else ""
+        if hit_kw is not None and rule_key not in used_kw_rules and (ed - st) >= 650_000:
+            main_t, kw_t, kw_col, kw_font, kw_scale, kw_anim, sfx_k, sfx_v = hit_kw
+            used_kw_rules.add(rule_key)
+            # Main subtitle: <= 10-char prefix lifted gently to y=-0.49
+            tseg = TextSegment(
+                main_t,
+                Timerange(st, ed - st),
+                font=FontType.金陵体,
+                style=sub_style,
+                clip_settings=sub_clip_paired,
+                border=None,
+                shadow=sub_shadow,
+            )
+            script.add_segment(tseg, "字幕_金陵体")
+            sub_count += 1
 
-    # 8. Add emphasis keyword popups (placed cleanly at y=-0.76 below subtitle or y=-0.36 above, never over face!)
-    #    Each entry: (search_keyword, popup_text, color, font, y, scale, intro_anim, sfx_path, sfx_vol)
-    popup_specs: list[tuple[str, str, tuple[float, float, float], FontType, float, float, TextIntro, Path, float]] = [
-        ("中国美术学院", "国美本硕 · 七年", COLOR_YELLOW, FontType.金陵体, -0.76, 1.45, TextIntro.向上弹入, sfx_drop, 0.45),
-        ("合格证", "折在文化分!", COLOR_PINK, FontType.新青年体, -0.76, 1.55, TextIntro.缩小, sfx_dong, 0.40),
-        ("平时死守文化课", "平时死守文化课\n周末书法打底", COLOR_YELLOW, FontType.金陵体, -0.77, 1.35, TextIntro.向上弹入, sfx_ding, 0.48),
-        ("不低于本省", "不低于本省本科线", COLOR_YELLOW, FontType.金陵体, -0.76, 1.45, TextIntro.左移弹动, sfx_drop, 0.45),
-        ("浙江省490", "浙490 · 苏480 · 豫460 · 鲁440", COLOR_PINK, FontType.新青年体, -0.76, 1.18, TextIntro.打字机_I, sfx_drop, 0.45),
-        ("黑龙江380", "黑380 · 吉340 · 内蒙400", COLOR_PINK, FontType.新青年体, -0.76, 1.25, TextIntro.打字机_I, sfx_drop, 0.45),
-        ("悬殊100分", "悬殊 100 分!", COLOR_PINK, FontType.新青年体, -0.76, 1.65, TextIntro.缩小, sfx_stamp, 0.45),
-        ("画室机构", "别早早脱产烧钱集训", COLOR_YELLOW, FontType.金陵体, -0.76, 1.38, TextIntro.向上弹入, sfx_dong, 0.38),
-        ("篆刻科目", "高二尽早接触【篆刻】", COLOR_YELLOW, FontType.金陵体, -0.76, 1.42, TextIntro.左移弹动, sfx_ding, 0.48),
-        ("四体是100", "国美：书法100 + 篆刻100 + 古汉语100", COLOR_PINK, FontType.新青年体, -0.76, 1.05, TextIntro.左移弹动, sfx_drop, 0.45),
-        ("央美呢", "央美：书法100 + 篆刻100", COLOR_PINK, FontType.新青年体, -0.76, 1.28, TextIntro.缩小, sfx_stamp, 0.45),
-        ("背单词", "碎片时间背单词 · 背文综", COLOR_YELLOW, FontType.金陵体, -0.76, 1.32, TextIntro.打字机_I, sfx_drop, 0.45),
-        ("校考一结束", "2-3月校考结束 → 立刻冲文化", COLOR_YELLOW, FontType.金陵体, -0.76, 1.22, TextIntro.向上弹入, sfx_ding, 0.45),
-        ("双线并进", "专业 + 文化 · 双线并进", COLOR_YELLOW, FontType.金陵体, -0.76, 1.42, TextIntro.缩小, sfx_dong, 0.38),
-        ("留下书法艺考", "评论区留【书法艺考】", COLOR_YELLOW, FontType.金陵体, -0.76, 1.48, TextIntro.向上弹入, sfx_ding, 0.50),
-    ]
+            # Paired keyword highlight right below at y=-0.69, entering when spoken & ending with main subtitle
+            total_len = max(1, len(main_t) + len(kw_t))
+            ratio = len(main_t) / total_len
+            kw_st = st + int((ed - st) * ratio) - 80_000
+            kw_st = max(st + 180_000, min(ed - 420_000, kw_st))
+            if kw_st < last_kw_end + 80_000:
+                kw_st = last_kw_end + 80_000
+            kw_dur = ed - kw_st
+            if kw_dur >= 350_000:
+                kseg = TextSegment(
+                    kw_t,
+                    Timerange(kw_st, kw_dur),
+                    font=kw_font,
+                    style=TextStyle(size=13.5, color=kw_col, align=1, bold=False),
+                    clip_settings=ClipSettings(transform_x=0.0, transform_y=-0.69, scale_x=kw_scale, scale_y=kw_scale),
+                    border=None,
+                    shadow=kw_shadow,
+                )
+                kseg.add_animation(kw_anim, "0.3s")
+                script.add_segment(kseg, "重点大字包装")
+                sfx_events.append((kw_st, sfx_map[sfx_k], sfx_v))
+                last_kw_end = ed
+                popup_count += 1
+        else:
+            tseg = TextSegment(
+                txt,
+                Timerange(st, ed - st),
+                font=FontType.金陵体,
+                style=sub_style,
+                clip_settings=sub_clip_normal,
+                border=None,
+                shadow=sub_shadow,
+            )
+            script.add_segment(tseg, "字幕_金陵体")
+            sub_count += 1
 
-    sfx_events: list[tuple[int, Path, float]] = []
-    last_popup_end = 0
-    popup_count = 0
-    for kw, label, color, font, py, pscale, intro_anim, sfx_path, sfx_vol in popup_specs:
-        hit = find_cue_range(cues, kw, after_us=max(0, last_popup_end - 300_000))
-        if not hit:
-            continue
-        st, ed = hit
-        if st < last_popup_end + 150_000:
-            st = last_popup_end + 150_000
-        dur = max(1_600_000, min(3_400_000, ed - st + 900_000))
-        if st + dur > total_tl_us:
-            dur = total_tl_us - st
-        if dur < 600_000:
-            continue
-        pseg = TextSegment(
-            label,
-            Timerange(st, dur),
-            font=font,
-            style=TextStyle(size=12.0, color=color, align=1, bold=False),
-            clip_settings=ClipSettings(transform_x=0.0, transform_y=py, scale_x=pscale, scale_y=pscale),
-            border=None,
-            shadow=TextShadow(alpha=0.88, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0),
-        )
-        pseg.add_animation(intro_anim, "0.35s")
-        script.add_segment(pseg, "重点大字包装")
-        sfx_events.append((st, sfx_path, sfx_vol))
-        last_popup_end = st + dur
-        popup_count += 1
-    print(f"[popups] added {popup_count} emphasis text popups")
+    print(f"[subtitles] placed {sub_count} single-line main cues (<=10 chars) + {popup_count} paired keyword highlights")
 
     # 9. Add PiP proof cards (strictly on left/right/lower edges, never covering speaker's face!)
     pip_specs: list[tuple[str, str, Path, float, float, float, int, IntroType, Path]] = [
