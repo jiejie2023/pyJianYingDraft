@@ -39,6 +39,7 @@ from pyJianYingDraft import (
     DraftFolder,
     FontType,
     IntroType,
+    KeyframeProperty,
     OutroType,
     TextIntro,
     TextSegment,
@@ -55,7 +56,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v6"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v7"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -64,6 +65,16 @@ LINEAR_MASK_CACHE_PATH = (
     "82432976/4c6a0ef5de6a844342d40330e00c59eb"
 )
 LINEAR_MASK_RESOURCE_ID = "7356933362960831003"
+CIRCLE_MASK_CACHE_PATH = (
+    "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
+    "82432977/3ab1c47350d987c8ad415497e020a38b"
+)
+CIRCLE_MASK_RESOURCE_ID = "7356934080102928946"
+VIGNETTE_EFFECT_CACHE_PATH = (
+    "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
+    "7399495012515433728/ef7abad9671e2f3da7993b7673ece5fc"
+)
+VIGNETTE_EFFECT_RESOURCE_ID = "7399495012515433728"
 BEAUTY_PRESET_PATH = Path(
     r"D:\Jiely Life\projects\剪映AI草稿工具\02_resources\haixi_beauty_preset.json"
 )
@@ -85,9 +96,10 @@ DRAFT1_AUDIO_DIR = Path(
 DRAFT1_VIDEO_DIR = Path(
     r"D:\Software\剪映\JianyingPro Drafts\书法生380-450能上什么学校 (1)\materials\video"
 )
-PROOF_GAOSAN_DIR = Path(
-    r"D:\Jiely Life\projects\海晞文化-内容助理\02_resources\书法海海知识库\06_交付知识库\02_交付证明\07_成绩结果图\03_高三"
+PROOF_ROOT_DIR = Path(
+    r"D:\Jiely Life\projects\海晞文化-内容助理\02_resources\书法海海知识库\06_交付知识库\02_交付证明"
 )
+PROOF_GAOSAN_DIR = PROOF_ROOT_DIR / "07_成绩结果图" / "03_高三"
 
 CANVAS_WIDTH = 1320
 CANVAS_HEIGHT = 1760
@@ -586,11 +598,18 @@ def copy_asset(src: Path, dest_dir: Path, short_name: str) -> Path:
     return dst
 
 
-def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us: int) -> None:
+def patch_draft_postprocess(
+    draft_dir: Path,
+    draft_name: str,
+    total_duration_us: int,
+    vignette_ranges: list[tuple[int, int]] | None = None,
+) -> None:
     """Post-process draft_content.json & draft_meta_info.json:
-    1. Inject Haixi 17-item beauty preset onto every main talking-head video clip
+    1. Inject Haixi 17-item beauty preset onto every main talking-head clip (and circular PiP)
        and mirror +10 dB gain into last_nonzero_volume.
-    2. Inject verified local JianYing font cache paths, sync bold_width & shadow
+    2. Attach native JianYing 11.8 linear mask on top gradient shadow & circular mask on speaker PiP.
+    3. Inject restrained TL0 vignette (`暗角`) effect track at key emphasis beats.
+    4. Inject verified local JianYing font cache paths, sync bold_width & shadow
        properties, and enforce zero stroke/border when strokes is empty.
     """
     content_path = draft_dir / "draft_content.json"
@@ -604,9 +623,11 @@ def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us:
 
     effects_list = data.setdefault("materials", {}).setdefault("effects", [])
     masks_list = data.setdefault("materials", {}).setdefault("common_mask", [])
+    vfx_list = data.setdefault("materials", {}).setdefault("video_effects", [])
     beauty_clips = 0
     beauty_refs_total = 0
     top_shadow_masks = 0
+    circle_pip_masks = 0
     for tr in data.get("tracks", []):
         if tr.get("type") == "video" and tr.get("name") == "主视频_1.3x粗剪":
             for seg in tr.get("segments", []):
@@ -622,6 +643,48 @@ def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us:
                         extra_refs.append(eff_id)
                         beauty_refs_total += 1
                     beauty_clips += 1
+        elif tr.get("type") == "video" and tr.get("name") == "圆形画中画_海老师":
+            for seg in tr.get("segments", []):
+                seg["volume"] = 0.0
+                seg["last_nonzero_volume"] = 0.0
+                extra_refs = seg.setdefault("extra_material_refs", [])
+                # Exact 1:1 pixel circle on 1320x1760 (0.58*1320 == 0.435*1760 == 765.6px)
+                cmask_id = str(uuid.uuid4()).upper()
+                cmask_obj = {
+                    "id": cmask_id,
+                    "constant_material_id": str(uuid.uuid4()).upper(),
+                    "name": "圆形",
+                    "type": "mask",
+                    "category": "video",
+                    "category_id": "jichu",
+                    "category_name": "基础",
+                    "resource_type": "circle",
+                    "resource_id": CIRCLE_MASK_RESOURCE_ID,
+                    "path": CIRCLE_MASK_CACHE_PATH,
+                    "text_config": {"align_type": 15},
+                    "config": {
+                        "aspectRatio": 1.0,
+                        "centerX": 0.0,
+                        "centerY": 0.14,
+                        "feather": 0.03,
+                        "height": 0.435,
+                        "invert": False,
+                        "rotation": 0.0,
+                        "roundCorner": 0.0,
+                        "width": 0.58,
+                    },
+                }
+                masks_list.append(cmask_obj)
+                extra_refs.append(cmask_id)
+                circle_pip_masks += 1
+                if beauty_templates:
+                    for tmpl in beauty_templates:
+                        eff = copy.deepcopy(tmpl)
+                        eff_id = str(uuid.uuid4()).upper()
+                        eff["id"] = eff_id
+                        effects_list.append(eff)
+                        extra_refs.append(eff_id)
+                        beauty_refs_total += 1
         elif tr.get("type") == "video" and tr.get("name") == "顶部渐变阴影_黑场":
             for seg in tr.get("segments", []):
                 mask_id = str(uuid.uuid4()).upper()
@@ -652,6 +715,63 @@ def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us:
                 masks_list.append(mask_obj)
                 seg.setdefault("extra_material_refs", []).append(mask_id)
                 top_shadow_masks += 1
+
+    # 2. Inject restrained TL0 `暗角` video effect track (non-gimmicky, manual-edit taste)
+    vignette_added = 0
+    if vignette_ranges:
+        eff_segments: list[dict[str, Any]] = []
+        for idx_v, (vst, vdur) in enumerate(vignette_ranges):
+            if vdur <= 0:
+                continue
+            mat_id = str(uuid.uuid4()).upper()
+            vfx_list.append(
+                {
+                    "apply_target_type": 2,
+                    "path": VIGNETTE_EFFECT_CACHE_PATH,
+                    "category_name": "热门",
+                    "id": mat_id,
+                    "category_id": "39654",
+                    "resource_id": VIGNETTE_EFFECT_RESOURCE_ID,
+                    "effect_id": VIGNETTE_EFFECT_RESOURCE_ID,
+                    "name": "暗角",
+                    "type": "video_effect",
+                    "value": 1,
+                    "source_platform": 1,
+                    "adjust_params": [
+                        {"default_value": 1, "name": "effects_adjust_texture", "value": 1}
+                    ],
+                }
+            )
+            eff_segments.append(
+                {
+                    "id": str(uuid.uuid4()).upper(),
+                    "material_id": mat_id,
+                    "source": "segmentsourcenormal",
+                    "target_timerange": {"start": vst, "duration": vdur},
+                    "render_index": 11001 + idx_v,
+                    "enable_adjust": False,
+                    "enable_adjust_mask": False,
+                    "enable_hsl": False,
+                    "enable_lut": False,
+                    "responsive_layout": {},
+                    "render_timerange": {},
+                    "extra_material_refs": [],
+                    "common_keyframes": [],
+                }
+            )
+            vignette_added += 1
+        if eff_segments:
+            data.setdefault("tracks", []).append(
+                {
+                    "attribute": 0,
+                    "flag": 0,
+                    "id": str(uuid.uuid4()).upper(),
+                    "is_default_name": False,
+                    "name": "画面特效_克制暗角",
+                    "segments": eff_segments,
+                    "type": "effect",
+                }
+            )
 
     # 2. Patch text materials (local font path, shadow, bold_width, zero-stroke check)
     patched_fonts = 0
@@ -707,8 +827,8 @@ def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us:
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(
-        f"[patch] beauty preset attached to {beauty_clips} clips ({beauty_refs_total} effect refs); "
-        f"top gradient shadow linear mask attached on {top_shadow_masks} segment(s); "
+        f"[patch] beauty preset attached to {beauty_clips} main clips (+{circle_pip_masks} circular PiP clips, {beauty_refs_total} effect refs); "
+        f"linear masks={top_shadow_masks}, restrained vignettes={vignette_added}; "
         f"verified local fonts injected on {patched_fonts} text materials"
     )
 
@@ -834,10 +954,100 @@ def main() -> int:
         asset_img_dir,
         "09_央美篆刻92分全国最高.jpg",
     )
+    # Personal credential full-screen B-roll (国美本硕7年)
+    img_haixi_609 = copy_asset(
+        DRAFT1_VIDEO_DIR / "1164_穿校服的女生在校园树下留影，下方展板写着“海晞（609.5分）年级排名8 中国美术学院”.jpg",
+        asset_img_dir,
+        "10_海晞609分国美校园.jpg",
+    )
+    img_gm_diploma = copy_asset(
+        DRAFT1_VIDEO_DIR / "03_中国美术学院毕业证书封皮.jpg",
+        asset_img_dir,
+        "11_国美毕业证封皮.jpg",
+    )
+    img_gm_master = copy_asset(
+        DRAFT1_VIDEO_DIR / "02_国美硕士毕业_蓝色硕士服红立柱.jpg",
+        asset_img_dir,
+        "12_国美硕士毕业照.jpg",
+    )
+    # Grade 1/2/3 planning, seal-carving (篆刻), ancient Chinese (古汉语), and end service-value proof assets
+    img_plan_g1 = copy_asset(
+        PROOF_ROOT_DIR / "01_学生规划图/01_高一/001_这是一张宣传海报，主体为“书法海海线上教育”的“高一”课程推广。画面包含两份微信聊天记录截图，内容涉及书法学习规划、隶书课程资料及作业安排，.jpg",
+        asset_img_dir,
+        "13_高一学习规划海报.jpg",
+    )
+    img_g1_lishu_prog = copy_asset(
+        PROOF_ROOT_DIR / "05_进步对比图/01_高一/108_展示高一学生隶书创作“前”后对比，画面包含“书法海海线上特训营”、“2V1精品辅导”及“15天效果”字样.jpg",
+        asset_img_dir,
+        "14_高一隶书15天前后对比.jpg",
+    )
+    img_g2_zhuanke_20d = copy_asset(
+        PROOF_ROOT_DIR / "05_进步对比图/02_高二/144_展示高二同学篆刻作品20天效果对比，左侧为前，右侧为后，标注日期26.2.25.jpg",
+        asset_img_dir,
+        "15_高二国央篆刻20天对比.jpg",
+    )
+    img_zk_compare_1002 = copy_asset(
+        PROOF_ROOT_DIR / "05_进步对比图/03_高三/1002_线上篆刻（国美_央美校考）2V1精品辅导前后对比，标注“篆刻状元”“篆刻92 全国最高分”.jpg",
+        asset_img_dir,
+        "16_线上篆刻国央校考前后对比.jpg",
+    )
+    img_zk_compare_1007 = copy_asset(
+        PROOF_ROOT_DIR / "05_进步对比图/03_高三/1007_这是一张宣传海报，主体为“线上篆刻”及“国美·央美校考2V1精品辅导”大字标题，下方展示多组篆刻作品对比图（含“前”“后”字样）及聊天记录截.jpg",
+        asset_img_dir,
+        "17_线上篆刻多组作品对比.jpg",
+    )
+    img_guhanyu_100 = copy_asset(
+        PROOF_ROOT_DIR / "01_学生规划图/03_高三/241_一张“考前国美古汉语5节突击课程”的宣传图，列出了周一到周五的课程表及内容，强调价值100分.jpg",
+        asset_img_dir,
+        "18_国美古汉语5节突击100分.jpg",
+    )
+    img_xiaokao_plan = copy_asset(
+        PROOF_ROOT_DIR / "01_学生规划图/03_高三/189_一张带有“进击校考小圈”标题的图文卡片，内容包含“线上特训实况”、“领篆刻任务”及备考规划文字.jpg",
+        asset_img_dir,
+        "19_进击校考小圈规划.jpg",
+    )
+    img_xiaokao_subjects = copy_asset(
+        PROOF_ROOT_DIR / "02_上课讲评图/03_高三/371_2025校考集训海报，列出国美、央美等院校四体创作、篆刻、古汉语等备考科目.jpg",
+        asset_img_dir,
+        "20_国美央美校考备考科目.jpg",
+    )
+    img_plan_g2_excel = copy_asset(
+        PROOF_ROOT_DIR / "01_学生规划图/02_高二/019_这是一张宣传海报，主体为“高二书法线上全程”学习规划。画面包含微信聊天截图与Excel表格预览，聊天中提及“吴让之小篆作品《庾慎之谢东宫责米.png",
+        asset_img_dir,
+        "21_高二线上全程规划表.png",
+    )
+    img_plan_g2_duxue = copy_asset(
+        PROOF_ROOT_DIR / "01_学生规划图/02_高二/020_这是一张宣传海报，主体为“高二线上全程”书法辅导服务。画面包含微信聊天记录截图与文档资料预览，文字内容涉及“清篆基础”、“督学计划表”、“专.jpg",
+        asset_img_dir,
+        "22_高二定制规划与督学.jpg",
+    )
+    img_plan_doc_036 = copy_asset(
+        PROOF_ROOT_DIR / "01_学生规划图/07_通用/036_海老师给学员“桐桐”制定的学习计划文档，包含每日基础任务、视频学习、书写练习及月度考核安排.png",
+        asset_img_dir,
+        "23_定制个人学习计划文档.png",
+    )
+    img_group_critique = copy_asset(
+        DRAFT1_VIDEO_DIR / "11_专属学习群逐字讲评海报_红黄绿线标注示范.jpg",
+        asset_img_dir,
+        "24_专属学习群逐字讲评.jpg",
+    )
+    img_duxue_14 = copy_asset(
+        DRAFT1_VIDEO_DIR / "14_专属督学海报_不止督促作业更关心练习状态.jpeg",
+        asset_img_dir,
+        "25_专属日常督学海报.jpeg",
+    )
+    img_parent_thanks = copy_asset(
+        DRAFT1_VIDEO_DIR / "28_喜报海报_分数比预期高_家长致谢不走弯路.png",
+        asset_img_dir,
+        "26_家长致谢不走弯路喜报.png",
+    )
+
     img_black_field = copy_asset(BLACK_FIELD_PATH, asset_img_dir, "top_shadow_black.png")
 
-    # 4. Declare tracks in clean z-order (video -> PiP -> top gradient shadow -> text -> audio)
+    # 4. Declare tracks in clean z-order (video -> full-screen B-roll -> circular speaker PiP -> PiP -> top gradient shadow -> text -> audio)
     script.append_track(TrackSpec(TrackType.video, name="主视频_1.3x粗剪"))
+    script.append_track(TrackSpec(TrackType.video, name="全屏背书_Broll"))
+    script.append_track(TrackSpec(TrackType.video, name="圆形画中画_海老师"))
     script.append_track(TrackSpec(TrackType.video, name="画中画_左"))
     script.append_track(TrackSpec(TrackType.video, name="画中画_中"))
     script.append_track(TrackSpec(TrackType.video, name="画中画_右"))
@@ -845,6 +1055,8 @@ def main() -> int:
 
     script.append_track(TrackSpec(TrackType.text, name="字幕_金陵体"))
     script.append_track(TrackSpec(TrackType.text, name="重点大字包装"))
+    script.append_track(TrackSpec(TrackType.text, name="侧边原生文字_左"))
+    script.append_track(TrackSpec(TrackType.text, name="侧边原生文字_右"))
     script.append_track(TrackSpec(TrackType.text, name="顶部常驻标题_上行"))
     script.append_track(TrackSpec(TrackType.text, name="顶部常驻标题_下行"))
 
@@ -870,44 +1082,105 @@ def main() -> int:
         )
         script.add_segment(vseg, "主视频_1.3x粗剪")
 
-    # 6. Add top-title dark gradient shadow layer (黑场 + 线性蒙版 100% 羽化, matching Draft 1 A380C00A 1320x1760)
+    # 5b. Full-screen credential B-roll + circular muted speaker PiP during "中国美术学院书法专业，从本科读到硕士一共七年"
+    #     Modeled after manual-edited TL0 (`380-450`): breaks talking-head monotony while keeping speaker present!
+    broll_hit_start = find_cue_range(cues, "中国美术学院")
+    broll_hit_end = find_cue_range(cues, "一共七年")
+    broll_window: tuple[int, int] | None = None
+    if broll_hit_start and broll_hit_end and broll_hit_end[1] > broll_hit_start[0] + 1_500_000:
+        b_st = broll_hit_start[0]
+        b_ed = broll_hit_end[1]
+        b_dur = b_ed - b_st
+        broll_window = (b_st, b_ed)
+        # Split into 3 clean credential photos with subtle Ken Burns scale keyframe (1.02 -> 1.08)
+        d1 = round(b_dur * 0.34)
+        d2 = round(b_dur * 0.31)
+        d3 = b_dur - d1 - d2
+        broll_photos = [
+            (img_haixi_609, b_st, d1, 1.04, 1.10, 0.02),
+            (img_gm_diploma, b_st + d1, d2, 1.48, 1.56, 0.00),  # 4:3 landscape fills 3:4 nicely at ~1.48
+            (img_gm_master, b_st + d1 + d2, d3, 1.15, 1.22, -0.02),
+        ]
+        for bimg, pst, pdur, sc0, sc1, by in broll_photos:
+            bmat = VideoMaterial(str(bimg))
+            bseg = VideoSegment(
+                bmat,
+                Timerange(pst, pdur),
+                clip_settings=ClipSettings(transform_x=0.0, transform_y=by, scale_x=sc0, scale_y=sc0),
+            )
+            bseg.add_keyframe(KeyframeProperty.scale_x, 0, sc0)
+            bseg.add_keyframe(KeyframeProperty.scale_x, pdur, sc1)
+            bseg.add_keyframe(KeyframeProperty.scale_y, 0, sc0)
+            bseg.add_keyframe(KeyframeProperty.scale_y, pdur, sc1)
+            script.add_segment(bseg, "全屏背书_Broll")
+
+        # Overlay circular muted speaker PiP (clips overlapping [b_st, b_ed]) in bottom-right corner
+        for clip in clips:
+            ov_st = max(clip.tl_start_us, b_st)
+            ov_ed = min(clip.tl_start_us + clip.tl_dur_us, b_ed)
+            if ov_ed - ov_st < 80_000:
+                continue
+            tl_off_us = ov_st - clip.tl_start_us
+            src_off_us = round(tl_off_us * PLAYBACK_SPEED)
+            src_sub_dur = round((ov_ed - ov_st) * PLAYBACK_SPEED)
+            src_tr = Timerange(sec_to_us(clip.src_start) + src_off_us, src_sub_dur)
+            tgt_tr = Timerange(ov_st, ov_ed - ov_st)
+            cseg = VideoSegment(
+                raw_mat,
+                tgt_tr,
+                source_timerange=src_tr,
+                speed=PLAYBACK_SPEED,
+                volume=0.0,  # Muted — main track carries +10 dB audio!
+                clip_settings=ClipSettings(transform_x=0.60, transform_y=-0.16, scale_x=0.42, scale_y=0.42),
+            )
+            script.add_segment(cseg, "圆形画中画_海老师")
+        print(f"[broll] added 3 full-screen 国美 credential photos + circular speaker PiP ({b_st/1e6:.2f}s-{b_ed/1e6:.2f}s)")
+
+    # 6. Add top-title dark gradient shadow layer (黑场 + 线性蒙版 100% 羽化) & top two-line title
+    #    Smartly split around full-screen B-roll window so top title never covers graduation photos!
+    top_spans = (
+        [(0, broll_window[0]), (broll_window[1], total_tl_us)]
+        if broll_window is not None and broll_window[0] > 500_000
+        else [(0, total_tl_us)]
+    )
     black_mat = VideoMaterial(str(img_black_field), material_name="黑场")
-    top_shadow_seg = VideoSegment(
-        black_mat,
-        Timerange(0, total_tl_us),
-        clip_settings=ClipSettings(transform_x=0.0, transform_y=0.636, scale_x=1.0, scale_y=1.0, alpha=1.0),
-    )
-    script.add_segment(top_shadow_seg, "顶部渐变阴影_黑场")
-
-    # 6b. Add persistent top two-line title right above the top gradient shadow layer
-    #     - Font: FontType.清刻本悦 (FZQKBYSJW.ttf)
-    #     - Line 1: larger + bold (#FFFFFF), Line 2: slightly smaller + normal weight (#FFF29D)
-    #     - NO border/stroke; black shadow ~85% (80-90%) for clean legibility
-    #     - Intro: TextIntro.向上弹入 (0.4s)
     title_shadow = TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
-    top_line1 = TextSegment(
-        "书法生想上国美央美",
-        Timerange(0, total_tl_us),
-        font=FontType.清刻本悦,
-        style=TextStyle(size=13.0, color=COLOR_WHITE, align=1, bold=True, letter_spacing=1),
-        clip_settings=ClipSettings(transform_x=0.0, transform_y=0.840, scale_x=1.38, scale_y=1.38),
-        border=None,
-        shadow=title_shadow,
-    )
-    top_line1.add_animation(TextIntro.向上弹入, "0.4s")
-    script.add_segment(top_line1, "顶部常驻标题_上行")
+    for span_idx, (sp_st, sp_ed) in enumerate(top_spans):
+        sp_dur = sp_ed - sp_st
+        if sp_dur < 300_000:
+            continue
+        top_shadow_seg = VideoSegment(
+            black_mat,
+            Timerange(sp_st, sp_dur),
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=0.636, scale_x=1.0, scale_y=1.0, alpha=1.0),
+        )
+        script.add_segment(top_shadow_seg, "顶部渐变阴影_黑场")
 
-    top_line2 = TextSegment(
-        "高中三年怎么规划？",
-        Timerange(0, total_tl_us),
-        font=FontType.清刻本悦,
-        style=TextStyle(size=10.5, color=COLOR_YELLOW, align=1, bold=False, letter_spacing=1),
-        clip_settings=ClipSettings(transform_x=0.0, transform_y=0.665, scale_x=1.38, scale_y=1.38),
-        border=None,
-        shadow=title_shadow,
-    )
-    top_line2.add_animation(TextIntro.向上弹入, "0.4s")
-    script.add_segment(top_line2, "顶部常驻标题_下行")
+        top_line1 = TextSegment(
+            "书法生想上国美央美",
+            Timerange(sp_st, sp_dur),
+            font=FontType.清刻本悦,
+            style=TextStyle(size=13.0, color=COLOR_WHITE, align=1, bold=True, letter_spacing=1),
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=0.840, scale_x=1.38, scale_y=1.38),
+            border=None,
+            shadow=title_shadow,
+        )
+        if span_idx == 0:
+            top_line1.add_animation(TextIntro.向上弹入, "0.4s")
+        script.add_segment(top_line1, "顶部常驻标题_上行")
+
+        top_line2 = TextSegment(
+            "高中三年怎么规划？",
+            Timerange(sp_st, sp_dur),
+            font=FontType.清刻本悦,
+            style=TextStyle(size=10.5, color=COLOR_YELLOW, align=1, bold=False, letter_spacing=1),
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=0.665, scale_x=1.38, scale_y=1.38),
+            border=None,
+            shadow=title_shadow,
+        )
+        if span_idx == 0:
+            top_line2.add_animation(TextIntro.向上弹入, "0.4s")
+        script.add_segment(top_line2, "顶部常驻标题_下行")
 
     # 7 & 8. Add single-line subtitles (STRICTLY <= 10 chars!) + paired keyword-split highlights
     #        - Regular cue: 金陵体 size 13.5, y=-0.56, #FFFFFF, NO stroke, 85% shadow
@@ -999,17 +1272,42 @@ def main() -> int:
 
     print(f"[subtitles] placed {sub_count} single-line main cues (<=10 chars) + {popup_count} paired keyword highlights")
 
-    # 9. Add PiP proof cards (strictly on left/right/lower edges, never covering speaker's face!)
+    # 9. Add 100% real topic-matched proof / planning / seal-carving / service-value PiPs (ZERO AI-drawn cards!)
+    #    Format: (search_kw, track_name, img_path, x, y, scale, dur_us, intro_anim, sfx_path)
     pip_specs: list[tuple[str, str, Path, float, float, float, int, IntroType, Path]] = [
-        ("一共七年", "画中画_左", img_gm_2nd, -0.62, 0.05, 0.34, 2_800_000, IntroType.向右滑动, sfx_whoosh),
-        ("送进国美", "画中画_左", img_gm_xibao, -0.62, 0.04, 0.34, 3_000_000, IntroType.向右滑动, sfx_whoosh),
-        ("送进国美", "画中画_右", img_ym_notice, 0.62, 0.04, 0.34, 3_000_000, IntroType.向左滑动, sfx_page),
-        ("省统考", "画中画_左", img_rank1, -0.64, 0.16, 0.30, 2_700_000, IntroType.向上滑动, sfx_whoosh),
-        ("省统考", "画中画_中", img_rank3, 0.00, -0.18, 0.28, 2_500_000, IntroType.向上滑动, sfx_drop),
-        ("省统考", "画中画_右", img_rank7, 0.64, 0.16, 0.30, 2_700_000, IntroType.向上滑动, sfx_drop),
-        ("在线上找专业", "画中画_左", img_1v1, -0.60, -0.02, 0.36, 3_200_000, IntroType.向右滑动, sfx_whoosh),
-        ("在线上找专业", "画中画_右", img_online_class, 0.60, -0.02, 0.36, 3_200_000, IntroType.向左滑动, sfx_page),
-        ("央美呢", "画中画_右", img_ym_zhuanke, 0.61, 0.02, 0.36, 3_500_000, IntroType.向左滑动, sfx_page),
+        # --- 成果背书段 (19-23s): 话到图到精准同步 国美/央美 + 省统考第1/3/7 ---
+        ("送进国美", "画中画_左", img_gm_2nd, -0.62, 0.06, 0.34, 1_500_000, IntroType.向右滑动, sfx_whoosh),
+        ("送进国美", "画中画_右", img_ym_notice, 0.62, 0.06, 0.34, 1_500_000, IntroType.向左滑动, sfx_page),
+        ("第一名", "画中画_左", img_rank1, -0.64, 0.14, 0.30, 2_500_000, IntroType.向上滑动, sfx_whoosh),
+        ("第三名", "画中画_中", img_rank3, 0.00, -0.18, 0.28, 2_200_000, IntroType.向上滑动, sfx_drop),
+        ("第七名", "画中画_右", img_rank7, 0.64, 0.14, 0.30, 2_200_000, IntroType.向上滑动, sfx_drop),
+
+        # --- 高一打底与规划段 (81-93s): 高一规划 + 线上全程 + 1v1讲评 + 高一15天进步 ---
+        ("周末和暑假", "画中画_左", img_plan_g1, -0.62, 0.04, 0.35, 3_600_000, IntroType.向右滑动, sfx_page),
+        ("在线上找专业", "画中画_左", img_1v1, -0.60, 0.00, 0.36, 3_200_000, IntroType.向右滑动, sfx_whoosh),
+        ("在线上找专业", "画中画_右", img_online_class, 0.60, 0.00, 0.36, 3_200_000, IntroType.向左滑动, sfx_page),
+        ("篆隶楷行", "画中画_右", img_g1_lishu_prog, 0.62, 0.04, 0.35, 3_200_000, IntroType.向左滑动, sfx_drop),
+
+        # --- 高二篆刻抢跑段 (97-104s): 真实高二篆刻20天对比 + 国美央美篆刻2V1前后对比 ---
+        ("尽早接触", "画中画_左", img_g2_zhuanke_20d, -0.60, 0.04, 0.38, 3_800_000, IntroType.向右滑动, sfx_whoosh),
+        ("大半的分数", "画中画_右", img_zk_compare_1002, 0.60, 0.04, 0.38, 3_600_000, IntroType.向左滑动, sfx_page),
+
+        # --- 国美 vs 央美校考科目段 (104-112s): 古汉语100分课表 + 央美篆刻多组对比 + 篆刻状元92分 ---
+        ("古汉语", "画中画_左", img_guhanyu_100, -0.62, 0.04, 0.35, 3_400_000, IntroType.向右滑动, sfx_drop),
+        ("央美呢", "画中画_右", img_zk_compare_1007, 0.61, 0.04, 0.36, 3_800_000, IntroType.向左滑动, sfx_page),
+        ("大半壁江山", "画中画_左", img_ym_zhuanke, -0.62, 0.04, 0.35, 3_200_000, IntroType.向右滑动, sfx_drop),
+
+        # --- 高三冲刺与真题段 (128-140s): 校考小圈规划 + 国央校考科目 ---
+        ("校考之前", "画中画_左", img_xiaokao_plan, -0.62, 0.04, 0.35, 3_400_000, IntroType.向右滑动, sfx_whoosh),
+        ("历年的真题", "画中画_右", img_xiaokao_subjects, 0.62, 0.04, 0.35, 3_600_000, IntroType.向左滑动, sfx_page),
+
+        # --- 结尾服务价值与规划交付段 (147-163s): 高二规划表 + 定制计划文档 + 逐字讲评 + 家长致谢 + 督学表 + 日常督学 ---
+        ("找到我们", "画中画_左", img_plan_g2_excel, -0.61, 0.04, 0.36, 3_400_000, IntroType.向右滑动, sfx_page),
+        ("学习规划", "画中画_右", img_plan_doc_036, 0.61, 0.04, 0.36, 3_400_000, IntroType.向左滑动, sfx_drop),
+        ("上美院", "画中画_左", img_group_critique, -0.61, 0.04, 0.35, 3_200_000, IntroType.向右滑动, sfx_whoosh),
+        ("本科的层级", "画中画_右", img_parent_thanks, 0.61, 0.04, 0.36, 3_600_000, IntroType.向左滑动, sfx_page),
+        ("那么可以留下", "画中画_左", img_plan_g2_duxue, -0.61, 0.04, 0.36, 4_200_000, IntroType.向右滑动, sfx_page),
+        ("安排这个规划", "画中画_右", img_duxue_14, 0.61, 0.04, 0.35, 2_800_000, IntroType.向左滑动, sfx_drop),
     ]
 
     track_last_end: dict[str, int] = {}
@@ -1017,18 +1315,21 @@ def main() -> int:
     for kw, tname, img_path, px, py, pscale, dur_us, anim, sfx_p in pip_specs:
         hit = find_cue_range(cues, kw)
         if not hit:
+            print(f"[pip-warn] cue keyword not found: {kw!r}")
             continue
         st = hit[0]
-        if tname == "画中画_中":
+        if tname == "画中画_中" and kw == "省统考":
             st += 250_000
         elif tname == "画中画_右" and kw in ("送进国美", "省统考", "在线上找专业"):
             st += 450_000
         prev_end = track_last_end.get(tname, 0)
-        if st < prev_end + 200_000:
-            st = prev_end + 200_000
+        if st < prev_end + 150_000:
+            st = prev_end + 150_000
+        if st >= total_tl_us - 400_000:
+            continue
         if st + dur_us > total_tl_us:
             dur_us = total_tl_us - st
-        if dur_us < 800_000:
+        if dur_us < 650_000:
             continue
         vmat = VideoMaterial(str(img_path))
         pseg = VideoSegment(
@@ -1040,10 +1341,72 @@ def main() -> int:
         pseg.add_animation(OutroType.渐隐, "0.25s")
         script.add_segment(pseg, tname)
         track_last_end[tname] = st + dur_us
-        if tname == "画中画_左" or kw == "央美呢":
-            sfx_events.append((st, sfx_p, 0.42))
+        if tname == "画中画_左" or kw in ("央美呢", "本科的层级"):
+            sfx_events.append((st, sfx_p, 0.40))
         pip_count += 1
-    print(f"[pip] added {pip_count} proof PiP cards")
+    print(f"[pip] added {pip_count} real 交付知识库 proof/planning/seal-carving PiPs")
+
+    # 9a. Native JianYing spatial text callouts (replaces AI cards — 100% editable native text + animations!)
+    #     Modeled after TL0's clean side floating keywords (仓耳丰黑 + #FFF29D, zero stroke, 85% shadow)
+    #     Format: (search_kw, track_name, display_text, x, y, font_size, dur_us, anim, sfx_path)
+    side_text_specs: list[tuple[str, str, str, float, float, float, int, TextIntro, Path]] = [
+        # 南北各省本科线对比（左侧高分省 vs 右侧捡漏省，剪映原生文字打字机/弹入）
+        ("浙江省490", "侧边原生文字_左", "浙 490\n苏 480\n豫 460\n鲁 440", -0.58, 0.16, 15.0, 9_500_000, TextIntro.打字机_I, sfx_drop),
+        ("黑龙江380", "侧边原生文字_右", "黑 380\n吉 340\n内蒙 400", 0.58, 0.16, 15.0, 4_200_000, TextIntro.打字机_I, sfx_drop),
+        # 高一 / 高二 / 高三 阶段原生章节标签（人物侧边简洁点题，绝不花哨）
+        ("周末和暑假", "侧边原生文字_右", "高一阶段\n文化+打底", 0.56, 0.30, 15.0, 3_600_000, TextIntro.向上弹入, sfx_drop),
+        ("高二的时候", "侧边原生文字_右", "高二阶段\n抢跑篆刻", 0.56, 0.30, 15.0, 3_600_000, TextIntro.向上弹入, sfx_ding),
+        # 国美 vs 央美 校考分值原生文字对比（紧贴对应实拍素材）
+        ("四体是", "侧边原生文字_右", "国美校考\n书法 100\n篆刻 100\n古汉语 100", 0.56, 0.18, 14.5, 4_200_000, TextIntro.打字机_I, sfx_drop),
+        ("央美呢", "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100", -0.56, 0.24, 14.5, 3_000_000, TextIntro.向上弹入, sfx_drop),
+        # 高三冲刺阶段原生章节标签
+        ("高三冲刺期", "侧边原生文字_右", "高三阶段\n真题+冲文化", 0.56, 0.30, 15.0, 3_800_000, TextIntro.向上弹入, sfx_ding),
+    ]
+    side_last_end: dict[str, int] = {}
+    side_added = 0
+    for kw, tname, label, sx, sy, ssz, dur_us, anim, sfx_p in side_text_specs:
+        hit = find_cue_range(cues, kw)
+        if not hit:
+            print(f"[side-text-warn] cue keyword not found: {kw!r}")
+            continue
+        st = hit[0]
+        prev_end = side_last_end.get(tname, 0)
+        if st < prev_end + 150_000:
+            st = prev_end + 150_000
+        if st >= total_tl_us - 400_000:
+            continue
+        if st + dur_us > total_tl_us:
+            dur_us = total_tl_us - st
+        if dur_us < 600_000:
+            continue
+        sseg = TextSegment(
+            label,
+            Timerange(st, dur_us),
+            font=FontType.仓耳丰黑,
+            style=TextStyle(size=ssz, color=COLOR_YELLOW, align=1, bold=False, line_spacing=8),
+            clip_settings=ClipSettings(transform_x=sx, transform_y=sy, scale_x=1.0, scale_y=1.0),
+            border=None,
+            shadow=TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0),
+        )
+        sseg.add_animation(anim, "0.4s")
+        script.add_segment(sseg, tname)
+        side_last_end[tname] = st + dur_us
+        side_added += 1
+    print(f"[side-text] added {side_added} native JianYing animated side callouts")
+
+    # 9b. Compute 3 restrained TL0-style `暗角` focus moments (no gimmicky AI effects!)
+    vignette_ranges: list[tuple[int, int]] = []
+    for vkw, extra_dur in [
+        ("折在了文化分上", 1_600_000),
+        ("悬殊100分", 1_500_000),
+        ("双线并进", 1_600_000),
+    ]:
+        vhit = find_cue_range(cues, vkw)
+        if vhit:
+            vst = max(0, vhit[0] - 100_000)
+            vdur = min(extra_dur, total_tl_us - vst)
+            if vdur >= 600_000:
+                vignette_ranges.append((vst, vdur))
 
     # 10. Add looped BGM track (volume = 0.3162 ≈ -10 dB, matching Draft #1!)
     bgm_mat = AudioMaterial(str(bgm_path))
@@ -1087,9 +1450,9 @@ def main() -> int:
         sfx_added += 1
     print(f"[sfx] added {sfx_added} sparse SFX accents")
 
-    # 12. Save draft + inject beauty preset, verified local font paths & meta info
+    # 12. Save draft + inject beauty preset, masks, restrained vignettes, verified local fonts & meta info
     script.save()
-    patch_draft_postprocess(draft_dir, NEW_DRAFT_NAME, total_tl_us)
+    patch_draft_postprocess(draft_dir, NEW_DRAFT_NAME, total_tl_us, vignette_ranges=vignette_ranges)
     print(f"[done] JianYing draft saved to: {draft_dir}")
     return 0
 
