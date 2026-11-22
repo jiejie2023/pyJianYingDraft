@@ -3,22 +3,23 @@
 Build a complete rough-cut + packaged JianYing 11.8 plaintext draft for
 `261115书法生想上国美央美` using pyJianYingDraft.
 
-Features:
-  1. Non-destructive rough cut (removes retakes, stutters, fillers, and long silences/breaths)
-     with all kept talking-head clips set to 1.3x playback speed.
-  2. Subtitles: FontType.金陵体 (FZCuJinLJW.ttf), size 13.5, lower-middle (y=-0.56),
-     #FFFFFF + black border (0.08) + shadow, ASR typos corrected, exact 1.3x synced timing.
-  3. Persistent top two-line title: FontType.清刻本悦 (FZQKBYSJW.ttf, from Timeline #3),
-     color palette from Draft #1 (#FFFFFF top line + #FFF29D light-yellow hook line),
-     positioned cleanly in the white-wall headroom above the speaker's head.
-  4. Emphasis keyword popups (#FFF29D & #FF619D) with Draft #1 / Timeline #3 intro animations.
-  5. Verified masked proof PiP cards (国美/央美喜报、录取通知书、省统考喜报、线上1v1讲评)
-     placed on the left/right edges so they never cover the speaker's face.
-  6. Looped ancient-zither BGM (volume=0.3162 ≈ -10 dB, 2s fade-out) + sparse SFX accents.
-  7. Injects verified local JianYing font cache paths so custom fonts render immediately.
+Features (strictly following 海晞口播剪辑与包装标准模板.md):
+  1. Stage 1 — Pre-cut base prep applied across all main talking-head clips:
+     1.3x playback speed + +10 dB voice gain (volume=3.162278) + 17-item Haixi beauty preset.
+  2. Stage 2 — Non-destructive rough cut (removes retakes, stutters, fillers, and long silences/breaths).
+  3. Stage 3 — Packaging:
+     - Subtitles: FontType.金陵体 (or 俊雅体), size 13.5, lower-middle (y=-0.56), #FFFFFF,
+       NO border/stroke + black shadow 85% (alpha=0.85), exact 1.3x synced timing.
+     - Persistent top two-line title: FontType.清刻本悦 (FZQKBYSJW.ttf),
+       Line 1 larger + bold (#FFFFFF), Line 2 smaller + normal weight (#FFF29D),
+       NO border/stroke + black shadow 85%, positioned cleanly in top headroom.
+     - Emphasis keyword popups (#FFF29D & #FF619D), NO border/stroke + black shadow 88%.
+     - Verified masked proof PiP cards on left/right edges + looped BGM (-10 dB) + sparse SFX.
+     - 100% self-contained draft (assets/ copied locally) + verified local JianYing font cache paths.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -38,7 +39,6 @@ from pyJianYingDraft import (
     FontType,
     IntroType,
     OutroType,
-    TextBorder,
     TextIntro,
     TextSegment,
     TextShadow,
@@ -54,9 +54,12 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v2"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v3"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
+BEAUTY_PRESET_PATH = Path(
+    r"D:\Jiely Life\projects\剪映AI草稿工具\02_resources\haixi_beauty_preset.json"
+)
 ASR_JSON_PATH = Path(
     r"C:\Users\jiely\.gemini\antigravity\brain\66a1cadc-f2f0-47fd-890f-b411ed01293a"
     r"\scratch\asr_261115\逐字稿\IOS_ALBUM@C9E3502E-DB9B-44B4-840F-A96EB5C16179_L0_001@1794747834000.json"
@@ -83,12 +86,18 @@ CANVAS_WIDTH = 1320
 CANVAS_HEIGHT = 1760
 DRAFT_FPS = 30
 PLAYBACK_SPEED = 1.3
+VOICE_GAIN_DB = 10.0
+VOICE_VOLUME = round(10.0 ** (VOICE_GAIN_DB / 20.0), 6)  # +10 dB = 3.162278
 
-# Exact local font cache paths verified on this PC (from Draft 1 TL0 & TL3)
+# Exact local font cache paths verified on this PC (from Draft 1 TL0, TL1 & TL3)
 LOCAL_FONT_CACHE = {
     FontType.金陵体.value.resource_id: (
         "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
         "7086699209738424840/599831579b8aa5b5f0608d5e7d4ec5ce/FZCuJinLJW.ttf"
+    ),
+    FontType.俊雅体.value.resource_id: (
+        "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
+        "7078971008769593887/4f96b92a0023d2da2a4c9cb4e09e9565/造字工房俊雅体.ttf"
     ),
     FontType.清刻本悦.value.resource_id: (
         "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
@@ -482,11 +491,42 @@ def copy_asset(src: Path, dest_dir: Path, short_name: str) -> Path:
     return dst
 
 
-def patch_draft_fonts_and_meta(draft_dir: Path, draft_name: str, total_duration_us: int) -> None:
-    """Inject verified local JianYing font paths so custom fonts render immediately in 11.8."""
+def patch_draft_postprocess(draft_dir: Path, draft_name: str, total_duration_us: int) -> None:
+    """Post-process draft_content.json & draft_meta_info.json:
+    1. Inject Haixi 17-item beauty preset onto every main talking-head video clip
+       and mirror +10 dB gain into last_nonzero_volume.
+    2. Inject verified local JianYing font cache paths, sync bold_width & shadow
+       properties, and enforce zero stroke/border when strokes is empty.
+    """
     content_path = draft_dir / "draft_content.json"
     data = json.loads(content_path.read_text(encoding="utf-8"))
 
+    # 1. Inject beauty preset + mirror volume into last_nonzero_volume on main video track
+    beauty_templates: list[dict[str, Any]] = []
+    if BEAUTY_PRESET_PATH.exists():
+        beauty_cfg = json.loads(BEAUTY_PRESET_PATH.read_text(encoding="utf-8"))
+        beauty_templates = list(beauty_cfg.get("effects") or [])
+
+    effects_list = data.setdefault("materials", {}).setdefault("effects", [])
+    beauty_clips = 0
+    beauty_refs_total = 0
+    for tr in data.get("tracks", []):
+        if tr.get("type") == "video" and tr.get("name") == "主视频_1.3x粗剪":
+            for seg in tr.get("segments", []):
+                seg["volume"] = VOICE_VOLUME
+                seg["last_nonzero_volume"] = VOICE_VOLUME
+                if beauty_templates:
+                    extra_refs = seg.setdefault("extra_material_refs", [])
+                    for tmpl in beauty_templates:
+                        eff = copy.deepcopy(tmpl)
+                        eff_id = str(uuid.uuid4()).upper()
+                        eff["id"] = eff_id
+                        effects_list.append(eff)
+                        extra_refs.append(eff_id)
+                        beauty_refs_total += 1
+                    beauty_clips += 1
+
+    # 2. Patch text materials (local font path, shadow, bold_width, zero-stroke check)
     patched_fonts = 0
     for mat in data.get("materials", {}).get("texts", []):
         raw_content = mat.get("content", "")
@@ -498,14 +538,22 @@ def patch_draft_fonts_and_meta(draft_dir: Path, draft_name: str, total_duration_
             st0 = styles[0]
             if "size" in st0:
                 mat["font_size"] = st0["size"]
+            is_bold = bool(st0.get("bold", False))
+            mat["bold_width"] = 0.008 if is_bold else 0.0
+
             strokes = st0.get("strokes") or []
             if strokes and isinstance(strokes[0], dict):
                 mat["border_width"] = strokes[0].get("width", 0.08)
+            else:
+                # Explicitly ensure no border/stroke flag (bit 8) is active
+                mat["check_flag"] = int(mat.get("check_flag", 39)) & ~8
+                mat.pop("border_width", None)
+
             shadows = st0.get("shadows") or []
             if shadows and isinstance(shadows[0], dict):
                 mat["has_shadow"] = True
                 mat["shadow_color"] = "#000000"
-                mat["shadow_alpha"] = shadows[0].get("alpha", 0.75)
+                mat["shadow_alpha"] = shadows[0].get("alpha", 0.85)
                 mat["shadow_distance"] = shadows[0].get("distance", 5.0)
                 mat["shadow_angle"] = shadows[0].get("angle", -45.0)
             font_obj = st0.get("font")
@@ -521,7 +569,7 @@ def patch_draft_fonts_and_meta(draft_dir: Path, draft_name: str, total_duration_
 
     content_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # Update draft_meta_info.json with proper name & duration
+    # 3. Update draft_meta_info.json with proper name & duration
     meta_path = draft_dir / "draft_meta_info.json"
     if meta_path.exists():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -531,7 +579,10 @@ def patch_draft_fonts_and_meta(draft_dir: Path, draft_name: str, total_duration_
         meta["tm_duration"] = total_duration_us
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"[patch] injected verified local font paths on {patched_fonts} text materials")
+    print(
+        f"[patch] beauty preset attached to {beauty_clips} clips ({beauty_refs_total} effect refs); "
+        f"verified local fonts injected on {patched_fonts} text materials"
+    )
 
 
 def write_srt(cues: list[tuple[int, int, str]], out_path: Path) -> None:
@@ -670,7 +721,8 @@ def main() -> int:
     script.append_track(TrackSpec(TrackType.audio, name="BGM_古筝轻音乐"))
     script.append_track(TrackSpec(TrackType.audio, name="音效点缀"))
 
-    # 5. Add main rough-cut video track at 1.3x speed
+    # 5. Stage 1 + 2: Add main rough-cut video track at 1.3x speed & +10 dB voice gain
+    #    (17-item Haixi beauty preset is injected per-clip in patch_draft_postprocess)
     for clip in clips:
         src_tr = Timerange(sec_to_us(clip.src_start), sec_to_us(clip.src_end - clip.src_start))
         tgt_tr = Timerange(clip.tl_start_us, clip.tl_dur_us)
@@ -679,7 +731,7 @@ def main() -> int:
             tgt_tr,
             source_timerange=src_tr,
             speed=PLAYBACK_SPEED,
-            volume=1.0,
+            volume=VOICE_VOLUME,
             clip_settings=ClipSettings(
                 scale_x=clip.scale,
                 scale_y=clip.scale,
@@ -689,17 +741,19 @@ def main() -> int:
         script.add_segment(vseg, "主视频_1.3x粗剪")
 
     # 6. Add persistent top two-line title
-    #    - Font: FontType.清刻本悦 (FZQKBYSJW.ttf — Timeline #3's exact top-title font!)
-    #    - Color: Draft #1's palette (#FFFFFF upper line + #FFF29D light-yellow lower hook line!)
-    #    - Intro: TextIntro.向上弹入 (0.4s, same as Draft #1 T15!)
+    #    - Font: FontType.清刻本悦 (FZQKBYSJW.ttf)
+    #    - Line 1: larger + bold (#FFFFFF), Line 2: slightly smaller + normal weight (#FFF29D)
+    #    - NO border/stroke; black shadow ~85% (80-90%) for clean legibility
+    #    - Intro: TextIntro.向上弹入 (0.4s)
+    title_shadow = TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
     top_line1 = TextSegment(
         "书法生想上国美央美",
         Timerange(0, total_tl_us),
         font=FontType.清刻本悦,
-        style=TextStyle(size=12.5, color=COLOR_WHITE, align=1, bold=False, letter_spacing=1),
+        style=TextStyle(size=13.0, color=COLOR_WHITE, align=1, bold=True, letter_spacing=1),
         clip_settings=ClipSettings(transform_x=0.0, transform_y=0.845, scale_x=1.38, scale_y=1.38),
-        border=TextBorder(alpha=1.0, color=(0.0, 0.0, 0.0), width=35.0),
-        shadow=TextShadow(alpha=0.65, color=(0.0, 0.0, 0.0), diffuse=15.0, distance=5.0, angle=-45.0),
+        border=None,
+        shadow=title_shadow,
     )
     top_line1.add_animation(TextIntro.向上弹入, "0.4s")
     script.add_segment(top_line1, "顶部常驻标题_上行")
@@ -708,15 +762,16 @@ def main() -> int:
         "高中三年怎么规划？",
         Timerange(0, total_tl_us),
         font=FontType.清刻本悦,
-        style=TextStyle(size=11.0, color=COLOR_YELLOW, align=1, bold=False, letter_spacing=1),
+        style=TextStyle(size=10.5, color=COLOR_YELLOW, align=1, bold=False, letter_spacing=1),
         clip_settings=ClipSettings(transform_x=0.0, transform_y=0.685, scale_x=1.38, scale_y=1.38),
-        border=TextBorder(alpha=1.0, color=(0.0, 0.0, 0.0), width=40.0),
-        shadow=TextShadow(alpha=0.75, color=(0.0, 0.0, 0.0), diffuse=15.0, distance=5.0, angle=-45.0),
+        border=None,
+        shadow=title_shadow,
     )
     top_line2.add_animation(TextIntro.向上弹入, "0.4s")
     script.add_segment(top_line2, "顶部常驻标题_下行")
 
-    # 7. Add subtitles: 金陵体, size 13.5 (13~14), lower-middle (y=-0.56)
+    # 7. Add subtitles: 金陵体 (or 俊雅体), size 13.5 (13~14), lower-middle (y=-0.56),
+    #    NO border/stroke + black shadow 85% (80-90%)
     sub_style = TextStyle(
         size=13.5,
         color=COLOR_WHITE,
@@ -725,8 +780,7 @@ def main() -> int:
         max_line_width=0.84,
     )
     sub_clip = ClipSettings(transform_x=0.0, transform_y=-0.56, scale_x=1.0, scale_y=1.0)
-    sub_border = TextBorder(alpha=1.0, color=(0.0, 0.0, 0.0), width=40.0)  # 0.08 in JianYing
-    sub_shadow = TextShadow(alpha=0.78, color=(0.0, 0.0, 0.0), diffuse=15.0, distance=5.0, angle=-45.0)
+    sub_shadow = TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
 
     for st, ed, txt in cues:
         tseg = TextSegment(
@@ -735,7 +789,7 @@ def main() -> int:
             font=FontType.金陵体,
             style=sub_style,
             clip_settings=sub_clip,
-            border=sub_border,
+            border=None,
             shadow=sub_shadow,
         )
         script.add_segment(tseg, "字幕_金陵体")
@@ -781,8 +835,8 @@ def main() -> int:
             font=font,
             style=TextStyle(size=12.0, color=color, align=1, bold=False),
             clip_settings=ClipSettings(transform_x=0.0, transform_y=py, scale_x=pscale, scale_y=pscale),
-            border=TextBorder(alpha=1.0, color=(0.0, 0.0, 0.0), width=42.0),
-            shadow=TextShadow(alpha=0.80, color=(0.0, 0.0, 0.0), diffuse=15.0, distance=5.0, angle=-45.0),
+            border=None,
+            shadow=TextShadow(alpha=0.88, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0),
         )
         pseg.add_animation(intro_anim, "0.35s")
         script.add_segment(pseg, "重点大字包装")
@@ -879,9 +933,9 @@ def main() -> int:
         sfx_added += 1
     print(f"[sfx] added {sfx_added} sparse SFX accents")
 
-    # 12. Save draft + inject verified local font paths & meta info
+    # 12. Save draft + inject beauty preset, verified local font paths & meta info
     script.save()
-    patch_draft_fonts_and_meta(draft_dir, NEW_DRAFT_NAME, total_tl_us)
+    patch_draft_postprocess(draft_dir, NEW_DRAFT_NAME, total_tl_us)
     print(f"[done] JianYing draft saved to: {draft_dir}")
     return 0
 
