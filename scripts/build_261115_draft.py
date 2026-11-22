@@ -57,7 +57,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v10"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v11"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -77,6 +77,11 @@ CIRCLE_MASK_CACHE_PATH = (
     "82432977/3ab1c47350d987c8ad415497e020a38b"
 )
 CIRCLE_MASK_RESOURCE_ID = "7356934080102928946"
+MASK_STROKE_CACHE_PATH = (
+    "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/artistEffect/"
+    "7563928939278765348/290341ad03f260b3cd502bf88a55c5eb"
+)
+MASK_STROKE_RESOURCE_ID = "7563928939278765348"
 BLUR_EFFECT_CACHE_PATH = (
     "C:/Users/jiely/AppData/Local/JianyingPro/User Data/Cache/effect/"
     "7399495140399746304/abb0b0e8472b73a42e796086c708d216"
@@ -672,9 +677,34 @@ def patch_draft_postprocess(
                         beauty_refs_total += 1
                     beauty_clips += 1
         elif tr.get("type") == "video" and tr.get("name") == "圆形画中画_海老师":
+            videos_list = data.setdefault("materials", {}).setdefault("videos", [])
+            vmat_by_id = {v["id"]: v for v in videos_list}
             for seg in tr.get("segments", []):
                 seg["volume"] = 0.0
                 seg["last_nonzero_volume"] = 0.0
+                # CRITICAL FIX: Clone an INDEPENDENT video material per Track 3 circular PiP segment!
+                # In JianYing, `video_mask_stroke` lives on `materials.videos[i]`. Sharing Track 0's material_id
+                # causes JianYing to wipe mask stroke on save/reopen because Track 0 has no mask!
+                orig_vmat = vmat_by_id.get(seg.get("material_id"))
+                if orig_vmat is not None:
+                    indep_vmat = copy.deepcopy(orig_vmat)
+                    new_mid = str(uuid.uuid4()).upper()
+                    indep_vmat["id"] = new_mid
+                    indep_vmat["video_mask_stroke"] = {
+                        "alpha": 1.0,
+                        "color": "#ffffff",
+                        "distance": 0.0,
+                        "horizontal_shift": 0.0,
+                        "path": MASK_STROKE_CACHE_PATH,
+                        "resource_id": MASK_STROKE_RESOURCE_ID,
+                        "size": 0.20,
+                        "texture": 0.0,
+                        "type": "mask-stroke-single",
+                        "vertical_shift": 0.0,
+                    }
+                    videos_list.append(indep_vmat)
+                    seg["material_id"] = new_mid
+
                 extra_refs = seg.setdefault("extra_material_refs", [])
                 # Match user's exact v9 hand-tuned circular masks:
                 # - Full-screen B-roll top-right PiP (start < 20s): subtle feather=0.04 (~4% UI), width=0.58, height=0.435, centerY=0.14
@@ -1365,11 +1395,11 @@ def main() -> int:
         script.add_segment(top_line2, "顶部常驻标题_下行")
 
     # 7 & 8. Add single-line subtitles (STRICTLY <= 10 chars!) + paired keyword-split highlights
-    #        - Regular cue: 金陵体 size 13.5, y=-0.56, #FFFFFF, NO stroke, 85% shadow
-    #        - Paired keyword-split cue (SOP):
-    #            * Main track: <=10-char prefix at y=-0.49 (full sentence duration)
-    #            * Emphasis track: trailing core keyword at y=-0.69 (#FFF29D / #FF619D, scaled up,
-    #              enters when spoken and exits synchronized with main subtitle — ZERO duplication!)
+    #        - Regular talking-head cue: 金陵体 size 13.5, y=-0.56 (or y=-0.49 when stacked with keyword at y=-0.69)
+    #        - Inside data-separation screens (55.9-65.5s & 103.9-111.85s):
+    #            * Drop ONLY those subtitles to y=-0.729 so they NEVER collide with center data columns!
+    #            * If a keyword split occurs inside a data screen (e.g. "竟然可以" -> "悬殊100分!"),
+    #              relay sequentially at y=-0.708 (cut main prefix right when keyword enters — ZERO overlap!)
     sub_style = TextStyle(
         size=13.5,
         color=COLOR_WHITE,
@@ -1379,8 +1409,13 @@ def main() -> int:
     )
     sub_clip_normal = ClipSettings(transform_x=0.0, transform_y=-0.56, scale_x=1.0, scale_y=1.0)
     sub_clip_paired = ClipSettings(transform_x=0.0, transform_y=-0.49, scale_x=1.0, scale_y=1.0)
+    sub_clip_data = ClipSettings(transform_x=0.0, transform_y=-0.729, scale_x=1.0, scale_y=1.0)
     sub_shadow = TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
     kw_shadow = TextShadow(alpha=0.88, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0)
+
+    def in_data_window(st_us: int, ed_us: int) -> bool:
+        mid = (st_us + ed_us) // 2
+        return any(ds_st - 150_000 <= mid <= ds_ed + 350_000 for ds_st, ds_ed, _, _, _ in data_sep_windows)
 
     sfx_map = {
         "drop": sfx_drop,
@@ -1397,26 +1432,14 @@ def main() -> int:
     sub_count = 0
 
     for st, ed, txt in cues:
+        is_data_cue = in_data_window(st, ed)
         hit_kw = _match_keyword_split(txt)
         rule_key = f"{hit_kw[0]}|{hit_kw[1]}" if hit_kw is not None else ""
         if hit_kw is not None and rule_key not in used_kw_rules and (ed - st) >= 650_000:
             main_t, kw_t, kw_sz, kw_anim, sfx_k, sfx_v = hit_kw
             used_kw_rules.add(rule_key)
-            # Main subtitle: <= 10-char prefix lifted gently to y=-0.49
-            tseg = TextSegment(
-                main_t,
-                Timerange(st, ed - st),
-                font=FontType.金陵体,
-                style=sub_style,
-                clip_settings=sub_clip_paired,
-                border=None,
-                shadow=sub_shadow,
-            )
-            script.add_segment(tseg, "字幕_金陵体")
-            sub_count += 1
 
-            # Paired keyword highlight right below at y=-0.69:
-            # FontType.仓耳丰黑 + COLOR_YELLOW (#FFF29D) + direct font_size (18-21, scale=1.0)
+            # Compute keyword entry time
             total_len = max(1, len(main_t) + len(kw_t))
             ratio = len(main_t) / total_len
             kw_st = st + int((ed - st) * ratio) - 80_000
@@ -1424,13 +1447,44 @@ def main() -> int:
             if kw_st < last_kw_end + 80_000:
                 kw_st = last_kw_end + 80_000
             kw_dur = ed - kw_st
+
+            if is_data_cue and kw_dur >= 350_000:
+                # Inside data screen: main subtitle drops to y=-0.729 and cuts right when keyword enters (relay at y=-0.708!)
+                main_dur = max(180_000, kw_st - st)
+                tseg = TextSegment(
+                    main_t,
+                    Timerange(st, main_dur),
+                    font=FontType.金陵体,
+                    style=sub_style,
+                    clip_settings=sub_clip_data,
+                    border=None,
+                    shadow=sub_shadow,
+                )
+                script.add_segment(tseg, "字幕_金陵体")
+                sub_count += 1
+                kw_y = -0.708
+            else:
+                # Regular talking-head: classic two-row stacked pairing (main y=-0.49 + keyword y=-0.69)
+                tseg = TextSegment(
+                    main_t,
+                    Timerange(st, ed - st),
+                    font=FontType.金陵体,
+                    style=sub_style,
+                    clip_settings=sub_clip_paired,
+                    border=None,
+                    shadow=sub_shadow,
+                )
+                script.add_segment(tseg, "字幕_金陵体")
+                sub_count += 1
+                kw_y = -0.69
+
             if kw_dur >= 350_000:
                 kseg = TextSegment(
                     kw_t,
                     Timerange(kw_st, kw_dur),
                     font=FontType.仓耳丰黑,
                     style=TextStyle(size=kw_sz, color=COLOR_YELLOW, align=1, bold=False),
-                    clip_settings=ClipSettings(transform_x=0.0, transform_y=-0.69, scale_x=1.0, scale_y=1.0),
+                    clip_settings=ClipSettings(transform_x=0.0, transform_y=kw_y, scale_x=1.0, scale_y=1.0),
                     border=None,
                     shadow=kw_shadow,
                 )
@@ -1445,7 +1499,7 @@ def main() -> int:
                 Timerange(st, ed - st),
                 font=FontType.金陵体,
                 style=sub_style,
-                clip_settings=sub_clip_normal,
+                clip_settings=sub_clip_data if is_data_cue else sub_clip_normal,
                 border=None,
                 shadow=sub_shadow,
             )
@@ -1482,8 +1536,8 @@ def main() -> int:
         ("RIGHT", "画中画_右", img_zk_compare_1002,  0.61, 0.08, 0.36, cue_st("大半的分数", 101.23), 103_700_000, IntroType.向左滑动, sfx_page),
 
         # --- 国美 vs 央美科目分值数据分离段 (103.9s-111.85s): 上方圆形清晰人物 + 左文右图错位，零叠字 ---
-        ("RIGHT", "画中画_右", img_guhanyu_100,      0.54, -0.10, 0.34, 105_500_000, 107_850_000, IntroType.向左滑动, sfx_drop),
-        ("RIGHT", "画中画_右", img_zk_compare_1007,  0.54, -0.10, 0.34, 108_100_000, 111_850_000, IntroType.向左滑动, sfx_page),
+        ("RIGHT", "画中画_右", img_guhanyu_100,      0.54, -0.02, 0.34, 105_500_000, 107_850_000, IntroType.向左滑动, sfx_drop),
+        ("RIGHT", "画中画_右", img_zk_compare_1007,  0.54, -0.02, 0.34, 108_100_000, 111_850_000, IntroType.向左滑动, sfx_page),
         # 补课提醒段: 左/右无文字, 展示央美篆刻92分全国最高喜报 (112.2s-116.5s)
         ("LEFT",  "画中画_左", img_ym_zhuanke,      -0.62, 0.08, 0.35, 112_200_000, 116_500_000, IntroType.向右滑动, sfx_drop),
 
@@ -1503,15 +1557,15 @@ def main() -> int:
     # Scheduled native JianYing animated data callouts + 3 user-tuned centered 25pt chapter dividers!
     # Format: (zone, track_name, label, x, y, font_size, start_us, end_us, anim)
     side_text_plan: list[tuple[str, str, str, float, float, float, int, int, TextIntro]] = [
-        # 数据分离段 #1 — 南北各省本科线对比 (55.9s-65.5s): 背景虚化压暗 + 上方圆形清晰人物 + 下方左右大字数据！
-        ("LEFT",   "侧边原生文字_左", "高分省\n浙 490\n苏 480\n豫 460\n鲁 440", -0.50, -0.10, 15.5, cue_st("浙江省490", 55.93), 65_500_000, TextIntro.打字机_I),
-        ("RIGHT",  "侧边原生文字_右", "捡漏省\n黑 380\n吉 340\n内蒙 400",        0.50, -0.10, 15.5, cue_st("黑龙江380", 61.90), 65_500_000, TextIntro.打字机_I),
+        # 数据分离段 #1 — 南北各省本科线对比 (55.9s-65.5s): 顶部大圆人物 y=+0.597 + 中部双色数据 y=-0.02 + 底部字幕 y=-0.729！
+        ("LEFT",   "侧边原生文字_左", "高分省\n浙 490\n苏 480\n豫 460\n鲁 440", -0.50, -0.02, 15.5, cue_st("浙江省490", 55.93), 65_500_000, TextIntro.打字机_I),
+        ("RIGHT",  "侧边原生文字_右", "捡漏省\n黑 380\n吉 340\n内蒙 400",        0.50, -0.02, 15.5, cue_st("黑龙江380", 61.90), 65_500_000, TextIntro.打字机_I),
         # 3 处居中大字章节分段 (完全复刻用户 v8 手调: 25pt 居中 y=-0.04 + 仅主轨模糊 + 锐利半透明黑场衬底条!)
         ("CENTER", "侧边原生文字_右", "高一阶段\n文化+打底",                       0.00, -0.04, 25.0, 81_170_000,  83_670_000, TextIntro.向上弹入),
         ("CENTER", "侧边原生文字_右", "高二阶段\n抢跑篆刻",                       0.00, -0.04, 25.0, 93_530_000,  96_770_000, TextIntro.向上弹入),
-        # 数据分离段 #2 — 国美 vs 央美科目分值 (103.9s-111.85s): 上方圆形清晰人物 + 左文右图错位，零重叠！
-        ("LEFT",   "侧边原生文字_左", "国美校考\n书法 100\n篆刻 100\n古汉语 100", -0.50, -0.10, 15.0, 103_900_000, 107_850_000, TextIntro.打字机_I),
-        ("LEFT",   "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100",             -0.50, -0.10, 15.5, 108_100_000, 111_850_000, TextIntro.向上弹入),
+        # 数据分离段 #2 — 国美 vs 央美科目分值 (103.9s-111.85s): 顶部大圆人物 y=+0.597 + 左文右图 y=-0.02 + 底部字幕 y=-0.729！
+        ("LEFT",   "侧边原生文字_左", "国美校考\n书法 100\n篆刻 100\n古汉语 100", -0.50, -0.02, 15.0, 103_900_000, 107_850_000, TextIntro.打字机_I),
+        ("LEFT",   "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100",             -0.50, -0.02, 15.5, 108_100_000, 111_850_000, TextIntro.向上弹入),
         # 章节分段 #3
         ("CENTER", "侧边原生文字_右", "高三阶段\n真题+冲文化",                     0.00, -0.04, 25.0, 119_330_000, 123_070_000, TextIntro.向上弹入),
     ]
