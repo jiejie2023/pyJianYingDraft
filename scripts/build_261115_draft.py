@@ -56,7 +56,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v7"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v8"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -422,6 +422,8 @@ def _smart_chinese_split(chunk: str, max_chars: int) -> list[str]:
 # All emphasis keywords use FontType.仓耳丰黑 + COLOR_YELLOW (#FFF29D) + direct font_size (18-21, scale=1.0).
 # Format: (match_text, main_text_le_10, kw_text, kw_font_size, kw_anim, sfx_name, sfx_vol)
 KEYWORD_SPLIT_RULES: list[tuple[str, str, str, float, TextIntro, str, float]] = [
+    ("书法生想上国美央美", "书法生想上", "国美央美", 21.0, TextIntro.向上弹入, "ding", 0.45),
+    ("应该给孩子如何规划", "应该给孩子", "如何规划？", 20.5, TextIntro.向上弹入, "drop", 0.45),
     ("从本科读到硕士 一共七年", "从本科读到硕士", "一共七年", 20.0, TextIntro.向上弹入, "drop", 0.45),
     ("每年很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", 19.0, TextIntro.向上弹入, "ding", 0.48),
     ("很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", 19.0, TextIntro.向上弹入, "ding", 0.48),
@@ -440,8 +442,11 @@ KEYWORD_SPLIT_RULES: list[tuple[str, str, str, float, TextIntro, str, float]] = 
 
 def _match_keyword_split(text: str) -> tuple[str, str, float, TextIntro, str, float] | None:
     norm = re.sub(r"\s+", " ", text).strip()
+    norm_compact = norm.replace(" ", "")
     for pat, main_t, kw_t, kw_sz, anim, sfx_k, sfx_v in KEYWORD_SPLIT_RULES:
-        if norm == pat or pat in norm:
+        pat_compact = pat.replace(" ", "")
+        # Require near-exact match so an extra clause before/after pat is NEVER silently swallowed!
+        if norm_compact == pat_compact or (pat_compact in norm_compact and abs(len(norm_compact) - len(pat_compact)) <= 2):
             return (main_t, kw_t, kw_sz, anim, sfx_k, sfx_v)
     return None
 
@@ -502,8 +507,14 @@ def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) 
         sb = sent["end"] / 1000.0
         txt = str(sent.get("sentence", ""))
 
-        # Handle partially trimmed sentences with explicit prefix deletions
-        if abs(sa - 144.44) < 0.2:
+        # Handle opening boundary ("书法生想上国美、" + "央美，高中三年...") and trimmed prefix deletions
+        if abs(sa - 0.78) < 0.2:
+            sb = 2.75
+            txt = "书法生想上国美央美"
+        elif abs(sa - 2.34) < 0.2:
+            sa = 2.75
+            txt = "高中三年到底应该给孩子如何规划？"
+        elif abs(sa - 144.44) < 0.2:
             sa = 145.90
             txt = "各省的书法生家长注意了哈"
         elif abs(sa - 152.66) < 0.2:
@@ -575,9 +586,14 @@ def build_subtitle_cues(sentences: list[dict[str, Any]], clips: list[KeptClip]) 
         merged_cues.append((st, ed, txt, ends_s))
 
     # Final pass: guarantee any cue not matched by a keyword-split rule is strictly <= 10 chars
+    #             AND split "高中三年到底应该给孩子如何规划" into "高中三年到底" + "应该给孩子如何规划"
     final_cues: list[tuple[int, int, str]] = []
     for st, ed, txt, _ in merged_cues:
-        if _match_keyword_split(txt) is not None or len(txt) <= 10:
+        if txt == "高中三年到底应该给孩子如何规划？" or txt == "高中三年到底应该给孩子如何规划":
+            mid = st + round((ed - st) * 6 / 15)
+            final_cues.append((st, mid, "高中三年到底"))
+            final_cues.append((mid, ed, "应该给孩子如何规划"))
+        elif _match_keyword_split(txt) is not None or len(txt) <= 10:
             final_cues.append((st, ed, txt))
         else:
             final_cues.extend(split_long_cue(txt, st, ed, max_chars=10))
@@ -1065,7 +1081,8 @@ def main() -> int:
 
     # 5. Stage 1 + 2: Add main rough-cut video track at 1.3x speed & +10 dB voice gain
     #    (17-item Haixi beauty preset is injected per-clip in patch_draft_postprocess)
-    for clip in clips:
+    #    Opening 3-second hook: smooth live push-in keyframe (1.00 -> 1.08) across the first clips!
+    for clip_idx, clip in enumerate(clips):
         src_tr = Timerange(sec_to_us(clip.src_start), sec_to_us(clip.src_end - clip.src_start))
         tgt_tr = Timerange(clip.tl_start_us, clip.tl_dur_us)
         vseg = VideoSegment(
@@ -1080,6 +1097,16 @@ def main() -> int:
                 transform_y=clip.transform_y,
             ),
         )
+        # Opening 0-4.2s smooth push-in keyframe so the hook feels immediately alive
+        if clip.tl_start_us < 4_200_000 and clip.tl_dur_us >= 400_000:
+            p0 = min(1.0, clip.tl_start_us / 4_200_000.0)
+            p1 = min(1.0, (clip.tl_start_us + clip.tl_dur_us) / 4_200_000.0)
+            sc0 = round(1.00 + 0.08 * p0, 4)
+            sc1 = round(1.00 + 0.08 * p1, 4)
+            vseg.add_keyframe(KeyframeProperty.scale_x, 0, sc0)
+            vseg.add_keyframe(KeyframeProperty.scale_x, clip.tl_dur_us, sc1)
+            vseg.add_keyframe(KeyframeProperty.scale_y, 0, sc0)
+            vseg.add_keyframe(KeyframeProperty.scale_y, clip.tl_dur_us, sc1)
         script.add_segment(vseg, "主视频_1.3x粗剪")
 
     # 5b. Full-screen credential B-roll + circular muted speaker PiP during "中国美术学院书法专业，从本科读到硕士一共七年"
@@ -1161,12 +1188,12 @@ def main() -> int:
             Timerange(sp_st, sp_dur),
             font=FontType.清刻本悦,
             style=TextStyle(size=13.0, color=COLOR_WHITE, align=1, bold=True, letter_spacing=1),
-            clip_settings=ClipSettings(transform_x=0.0, transform_y=0.840, scale_x=1.38, scale_y=1.38),
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=0.840, scale_x=1.26, scale_y=1.26),
             border=None,
             shadow=title_shadow,
         )
         if span_idx == 0:
-            top_line1.add_animation(TextIntro.向上弹入, "0.4s")
+            top_line1.add_animation(TextIntro.向上弹入, "0.35s")
         script.add_segment(top_line1, "顶部常驻标题_上行")
 
         top_line2 = TextSegment(
@@ -1174,12 +1201,12 @@ def main() -> int:
             Timerange(sp_st, sp_dur),
             font=FontType.清刻本悦,
             style=TextStyle(size=10.5, color=COLOR_YELLOW, align=1, bold=False, letter_spacing=1),
-            clip_settings=ClipSettings(transform_x=0.0, transform_y=0.665, scale_x=1.38, scale_y=1.38),
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=0.670, scale_x=1.26, scale_y=1.26),
             border=None,
             shadow=title_shadow,
         )
         if span_idx == 0:
-            top_line2.add_animation(TextIntro.向上弹入, "0.4s")
+            top_line2.add_animation(TextIntro.向上弹入, "0.35s")
         script.add_segment(top_line2, "顶部常驻标题_下行")
 
     # 7 & 8. Add single-line subtitles (STRICTLY <= 10 chars!) + paired keyword-split highlights
@@ -1272,64 +1299,95 @@ def main() -> int:
 
     print(f"[subtitles] placed {sub_count} single-line main cues (<=10 chars) + {popup_count} paired keyword highlights")
 
-    # 9. Add 100% real topic-matched proof / planning / seal-carving / service-value PiPs (ZERO AI-drawn cards!)
-    #    Format: (search_kw, track_name, img_path, x, y, scale, dur_us, intro_anim, sfx_path)
-    pip_specs: list[tuple[str, str, Path, float, float, float, int, IntroType, Path]] = [
-        # --- 成果背书段 (19-23s): 话到图到精准同步 国美/央美 + 省统考第1/3/7 ---
-        ("送进国美", "画中画_左", img_gm_2nd, -0.62, 0.06, 0.34, 1_500_000, IntroType.向右滑动, sfx_whoosh),
-        ("送进国美", "画中画_右", img_ym_notice, 0.62, 0.06, 0.34, 1_500_000, IntroType.向左滑动, sfx_page),
-        ("第一名", "画中画_左", img_rank1, -0.64, 0.14, 0.30, 2_500_000, IntroType.向上滑动, sfx_whoosh),
-        ("第三名", "画中画_中", img_rank3, 0.00, -0.18, 0.28, 2_200_000, IntroType.向上滑动, sfx_drop),
-        ("第七名", "画中画_右", img_rank7, 0.64, 0.14, 0.30, 2_200_000, IntroType.向上滑动, sfx_drop),
+    # 9 & 9a. 100% Collision-Free Choreography of Real 交付知识库 PiPs + Native Animated Side Callouts
+    #         IRON RULE: At any instant t, LEFT / CENTER / RIGHT zone may hold AT MOST ONE item
+    #         (either a PiP image OR a native side text, NEVER both stacked on top of each other!).
+    #         And all PiPs sit at y=+0.08..+0.14 with plenty of headroom above subtitles (y=-0.49/-0.56).
+    def cue_st(kw: str, fallback_s: float) -> int:
+        hit = find_cue_range(cues, kw)
+        return hit[0] if hit else sec_to_us(fallback_s)
 
-        # --- 高一打底与规划段 (81-93s): 高一规划 + 线上全程 + 1v1讲评 + 高一15天进步 ---
-        ("周末和暑假", "画中画_左", img_plan_g1, -0.62, 0.04, 0.35, 3_600_000, IntroType.向右滑动, sfx_page),
-        ("在线上找专业", "画中画_左", img_1v1, -0.60, 0.00, 0.36, 3_200_000, IntroType.向右滑动, sfx_whoosh),
-        ("在线上找专业", "画中画_右", img_online_class, 0.60, 0.00, 0.36, 3_200_000, IntroType.向左滑动, sfx_page),
-        ("篆隶楷行", "画中画_右", img_g1_lishu_prog, 0.62, 0.04, 0.35, 3_200_000, IntroType.向左滑动, sfx_drop),
+    def cue_ed(kw: str, fallback_s: float) -> int:
+        hit = find_cue_range(cues, kw)
+        return hit[1] if hit else sec_to_us(fallback_s)
 
-        # --- 高二篆刻抢跑段 (97-104s): 真实高二篆刻20天对比 + 国美央美篆刻2V1前后对比 ---
-        ("尽早接触", "画中画_左", img_g2_zhuanke_20d, -0.60, 0.04, 0.38, 3_800_000, IntroType.向右滑动, sfx_whoosh),
-        ("大半的分数", "画中画_右", img_zk_compare_1002, 0.60, 0.04, 0.38, 3_600_000, IntroType.向左滑动, sfx_page),
+    # Scheduled real PiP items: (zone, track_name, img_path, x, y, scale, start_us, end_us, anim, sfx_or_None)
+    pip_plan: list[tuple[str, str, Path, float, float, float, int, int, IntroType, Path | None]] = [
+        # --- 黄金前3秒开场王炸背书 (0.30s-2.20s): 1秒内看到真国美全国第二 + 真央美录取通知书 ---
+        ("LEFT",  "画中画_左", img_gm_2nd,         -0.63, 0.08, 0.33, 300_000,   2_200_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT", "画中画_右", img_ym_notice,       0.63, 0.08, 0.33, 450_000,   2_200_000, IntroType.向左滑动, None),
 
-        # --- 国美 vs 央美校考科目段 (104-112s): 古汉语100分课表 + 央美篆刻多组对比 + 篆刻状元92分 ---
-        ("古汉语", "画中画_左", img_guhanyu_100, -0.62, 0.04, 0.35, 3_400_000, IntroType.向右滑动, sfx_drop),
-        ("央美呢", "画中画_右", img_zk_compare_1007, 0.61, 0.04, 0.36, 3_800_000, IntroType.向左滑动, sfx_page),
-        ("大半壁江山", "画中画_左", img_ym_zhuanke, -0.62, 0.04, 0.35, 3_200_000, IntroType.向右滑动, sfx_drop),
+        # --- 成果背书段 (18.7s-23.6s): 国美/央美 -> 省统考第1/3/7一字排开不压字幕 ---
+        ("LEFT",   "画中画_左", img_gm_xibao,       -0.63, 0.08, 0.33, 18_700_000, 20_600_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT",  "画中画_右", img_ym_notice,       0.63, 0.08, 0.33, 18_950_000, 20_600_000, IntroType.向左滑动, None),
+        ("LEFT",   "画中画_左", img_rank1,          -0.64, 0.14, 0.30, 20_800_000, 23_600_000, IntroType.向上滑动, sfx_page),
+        ("CENTER", "画中画_中", img_rank3,           0.00, 0.16, 0.28, 21_400_000, 23_600_000, IntroType.向上滑动, None),
+        ("RIGHT",  "画中画_右", img_rank7,           0.64, 0.14, 0.30, 21_400_000, 23_600_000, IntroType.向上滑动, None),
 
-        # --- 高三冲刺与真题段 (128-140s): 校考小圈规划 + 国央校考科目 ---
-        ("校考之前", "画中画_左", img_xiaokao_plan, -0.62, 0.04, 0.35, 3_400_000, IntroType.向右滑动, sfx_whoosh),
-        ("历年的真题", "画中画_右", img_xiaokao_subjects, 0.62, 0.04, 0.35, 3_600_000, IntroType.向左滑动, sfx_page),
+        # --- 高一规划打底段 (83.8s-91.2s): 严格在「高一阶段」文字退场后切入，零重叠 ---
+        ("LEFT",  "画中画_左", img_plan_g1,         -0.62, 0.08, 0.34, 83_800_000, 87_300_000, IntroType.向右滑动, sfx_page),
+        ("RIGHT", "画中画_右", img_online_class,     0.62, 0.08, 0.34, 84_100_000, 87_300_000, IntroType.向左滑动, None),
+        ("LEFT",  "画中画_左", img_1v1,             -0.62, 0.08, 0.35, 87_500_000, 91_200_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT", "画中画_右", img_g1_lishu_prog,    0.62, 0.08, 0.34, 87_800_000, 91_200_000, IntroType.向左滑动, None),
 
-        # --- 结尾服务价值与规划交付段 (147-163s): 高二规划表 + 定制计划文档 + 逐字讲评 + 家长致谢 + 督学表 + 日常督学 ---
-        ("找到我们", "画中画_左", img_plan_g2_excel, -0.61, 0.04, 0.36, 3_400_000, IntroType.向右滑动, sfx_page),
-        ("学习规划", "画中画_右", img_plan_doc_036, 0.61, 0.04, 0.36, 3_400_000, IntroType.向左滑动, sfx_drop),
-        ("上美院", "画中画_左", img_group_critique, -0.61, 0.04, 0.35, 3_200_000, IntroType.向右滑动, sfx_whoosh),
-        ("本科的层级", "画中画_右", img_parent_thanks, 0.61, 0.04, 0.36, 3_600_000, IntroType.向左滑动, sfx_page),
-        ("那么可以留下", "画中画_左", img_plan_g2_duxue, -0.61, 0.04, 0.36, 4_200_000, IntroType.向右滑动, sfx_page),
-        ("安排这个规划", "画中画_右", img_duxue_14, 0.61, 0.04, 0.35, 2_800_000, IntroType.向左滑动, sfx_drop),
+        # --- 高二篆刻抢跑段 (97.2s-103.7s): 严格在「高二阶段」文字退场后切入，零重叠 ---
+        ("LEFT",  "画中画_左", img_g2_zhuanke_20d,  -0.61, 0.08, 0.36, cue_st("尽早接触", 97.21),   101_000_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT", "画中画_右", img_zk_compare_1002,  0.61, 0.08, 0.36, cue_st("大半的分数", 101.23), 103_700_000, IntroType.向左滑动, sfx_page),
+
+        # --- 国美 vs 央美科目分值段 (103.9s-116.5s): 严格「左文右图」错位，绝不叠字！ ---
+        # 国美段: 左=国美校考原生文字, 右=古汉语100分课表 (105.6s-107.85s)
+        ("RIGHT", "画中画_右", img_guhanyu_100,      0.62, 0.08, 0.34, 105_500_000, 107_850_000, IntroType.向左滑动, sfx_drop),
+        # 央美段: 左=央美校考原生文字, 右=线上篆刻多组对比 (108.1s-111.85s)
+        ("RIGHT", "画中画_右", img_zk_compare_1007,  0.62, 0.08, 0.35, 108_100_000, 111_850_000, IntroType.向左滑动, sfx_page),
+        # 补课提醒段: 左/右无文字, 展示央美篆刻92分全国最高喜报 (112.2s-116.5s)
+        ("LEFT",  "画中画_左", img_ym_zhuanke,      -0.62, 0.08, 0.35, 112_200_000, 116_500_000, IntroType.向右滑动, sfx_drop),
+
+        # --- 高三冲刺与真题段 (128.1s-137.0s): 严格在「高三阶段」文字退场后切入 ---
+        ("LEFT",  "画中画_左", img_xiaokao_plan,    -0.62, 0.08, 0.35, cue_st("校考之前", 128.07), 132_000_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT", "画中画_右", img_xiaokao_subjects, 0.62, 0.08, 0.35, 132_400_000,                137_000_000, IntroType.向左滑动, sfx_page),
+
+        # --- 结尾服务价值闭环 (147.6s-163.04s): 三组成对稳步展示，每组4~5.5秒，绝不闪切、不撞字幕 ---
+        ("LEFT",  "画中画_左", img_plan_g2_excel,   -0.62, 0.10, 0.34, 147_600_000, 151_600_000, IntroType.向右滑动, sfx_page),
+        ("RIGHT", "画中画_右", img_plan_doc_036,     0.62, 0.10, 0.34, 147_900_000, 151_600_000, IntroType.向左滑动, None),
+        ("LEFT",  "画中画_左", img_group_critique,  -0.62, 0.10, 0.34, 152_000_000, 156_600_000, IntroType.向右滑动, sfx_whoosh),
+        ("RIGHT", "画中画_右", img_parent_thanks,    0.62, 0.10, 0.34, 152_300_000, 156_600_000, IntroType.向左滑动, None),
+        ("LEFT",  "画中画_左", img_plan_g2_duxue,   -0.62, 0.10, 0.34, 157_200_000, total_tl_us, IntroType.向右滑动, sfx_page),
+        ("RIGHT", "画中画_右", img_duxue_14,         0.62, 0.10, 0.34, 157_500_000, total_tl_us, IntroType.向左滑动, None),
     ]
 
-    track_last_end: dict[str, int] = {}
+    # Scheduled native JianYing animated side text callouts (ZERO zone overlap with any PiP!)
+    # Format: (zone, track_name, label, x, y, font_size, start_us, end_us, anim)
+    side_text_plan: list[tuple[str, str, str, float, float, float, int, int, TextIntro]] = [
+        # 南北各省本科线对比 (55.9s-65.5s): 纯左右原生文字，画面零图片干扰！
+        ("LEFT",  "侧边原生文字_左", "浙 490\n苏 480\n豫 460\n鲁 440",  -0.60, 0.16, 14.5, cue_st("浙江省490", 55.93), 65_500_000, TextIntro.打字机_I),
+        ("RIGHT", "侧边原生文字_右", "黑 380\n吉 340\n内蒙 400",          0.60, 0.16, 14.5, cue_st("黑龙江380", 61.90), 65_500_000, TextIntro.打字机_I),
+        # 阶段点题标 (严格在对应图片入场前退场，零撞车！)
+        ("RIGHT", "侧边原生文字_右", "高一阶段\n文化+打底",               0.58, 0.24, 14.5, 81_300_000,  83_600_000, TextIntro.向上弹入),
+        ("RIGHT", "侧边原生文字_右", "高二阶段\n抢跑篆刻",               0.58, 0.24, 14.5, 93_650_000,  96_900_000, TextIntro.向上弹入),
+        # 国美 vs 央美科目分值 (全部在 LEFT 区，严格对应 RIGHT 区实拍图，左文右图绝不重叠！)
+        ("LEFT",  "侧边原生文字_左", "国美校考\n书法 100\n篆刻 100\n古汉语 100", -0.58, 0.16, 14.0, 103_900_000, 107_850_000, TextIntro.打字机_I),
+        ("LEFT",  "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100",             -0.58, 0.18, 14.5, 108_100_000, 111_850_000, TextIntro.向上弹入),
+        # 高三阶段标 (严格在128s高三图片入场前退场！)
+        ("RIGHT", "侧边原生文字_右", "高三阶段\n真题+冲文化",             0.58, 0.24, 14.5, 119_450_000, 123_200_000, TextIntro.向上弹入),
+    ]
+
+    # Built-in 2D space-time collision gate: fail loudly if ANY zone has overlapping PiP/side-text!
+    zone_items: dict[str, list[tuple[int, int, str]]] = {"LEFT": [], "CENTER": [], "RIGHT": []}
+    for z, _, p, _, _, _, st, ed, _, _ in pip_plan:
+        assert ed - st >= 1_400_000, f"Flash-cut PiP <1.4s: {p.name} ({(ed-st)/1e6:.2f}s)"
+        zone_items[z].append((st, ed, f"PiP:{p.name}"))
+    for z, _, lbl, _, _, _, st, ed, _ in side_text_plan:
+        assert ed - st >= 1_400_000, f"Flash-cut side text <1.4s: {lbl}"
+        zone_items[z].append((st, ed, f"TEXT:{lbl.splitlines()[0]}"))
+    for z, lst in zone_items.items():
+        lst.sort(key=lambda x: x[0])
+        for (a0, a1, an), (b0, b1, bn) in zip(lst, lst[1:]):
+            assert b0 >= a1, f"ZONE COLLISION in {z}: {an}[{a0/1e6:.2f}-{a1/1e6:.2f}] vs {bn}[{b0/1e6:.2f}-{b1/1e6:.2f}]"
+
     pip_count = 0
-    for kw, tname, img_path, px, py, pscale, dur_us, anim, sfx_p in pip_specs:
-        hit = find_cue_range(cues, kw)
-        if not hit:
-            print(f"[pip-warn] cue keyword not found: {kw!r}")
-            continue
-        st = hit[0]
-        if tname == "画中画_中" and kw == "省统考":
-            st += 250_000
-        elif tname == "画中画_右" and kw in ("送进国美", "省统考", "在线上找专业"):
-            st += 450_000
-        prev_end = track_last_end.get(tname, 0)
-        if st < prev_end + 150_000:
-            st = prev_end + 150_000
-        if st >= total_tl_us - 400_000:
-            continue
-        if st + dur_us > total_tl_us:
-            dur_us = total_tl_us - st
-        if dur_us < 650_000:
+    for z, tname, img_path, px, py, pscale, st, ed, anim, sfx_p in pip_plan:
+        dur_us = min(ed, total_tl_us) - st
+        if dur_us < 1_000_000:
             continue
         vmat = VideoMaterial(str(img_path))
         pseg = VideoSegment(
@@ -1337,47 +1395,18 @@ def main() -> int:
             Timerange(st, dur_us),
             clip_settings=ClipSettings(transform_x=px, transform_y=py, scale_x=pscale, scale_y=pscale),
         )
-        pseg.add_animation(anim, "0.35s")
-        pseg.add_animation(OutroType.渐隐, "0.25s")
+        pseg.add_animation(anim, "0.32s")
+        pseg.add_animation(OutroType.渐隐, "0.22s")
         script.add_segment(pseg, tname)
-        track_last_end[tname] = st + dur_us
-        if tname == "画中画_左" or kw in ("央美呢", "本科的层级"):
+        if sfx_p is not None:
             sfx_events.append((st, sfx_p, 0.40))
         pip_count += 1
-    print(f"[pip] added {pip_count} real 交付知识库 proof/planning/seal-carving PiPs")
+    print(f"[pip] added {pip_count} collision-free real 交付知识库 PiPs")
 
-    # 9a. Native JianYing spatial text callouts (replaces AI cards — 100% editable native text + animations!)
-    #     Modeled after TL0's clean side floating keywords (仓耳丰黑 + #FFF29D, zero stroke, 85% shadow)
-    #     Format: (search_kw, track_name, display_text, x, y, font_size, dur_us, anim, sfx_path)
-    side_text_specs: list[tuple[str, str, str, float, float, float, int, TextIntro, Path]] = [
-        # 南北各省本科线对比（左侧高分省 vs 右侧捡漏省，剪映原生文字打字机/弹入）
-        ("浙江省490", "侧边原生文字_左", "浙 490\n苏 480\n豫 460\n鲁 440", -0.58, 0.16, 15.0, 9_500_000, TextIntro.打字机_I, sfx_drop),
-        ("黑龙江380", "侧边原生文字_右", "黑 380\n吉 340\n内蒙 400", 0.58, 0.16, 15.0, 4_200_000, TextIntro.打字机_I, sfx_drop),
-        # 高一 / 高二 / 高三 阶段原生章节标签（人物侧边简洁点题，绝不花哨）
-        ("周末和暑假", "侧边原生文字_右", "高一阶段\n文化+打底", 0.56, 0.30, 15.0, 3_600_000, TextIntro.向上弹入, sfx_drop),
-        ("高二的时候", "侧边原生文字_右", "高二阶段\n抢跑篆刻", 0.56, 0.30, 15.0, 3_600_000, TextIntro.向上弹入, sfx_ding),
-        # 国美 vs 央美 校考分值原生文字对比（紧贴对应实拍素材）
-        ("四体是", "侧边原生文字_右", "国美校考\n书法 100\n篆刻 100\n古汉语 100", 0.56, 0.18, 14.5, 4_200_000, TextIntro.打字机_I, sfx_drop),
-        ("央美呢", "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100", -0.56, 0.24, 14.5, 3_000_000, TextIntro.向上弹入, sfx_drop),
-        # 高三冲刺阶段原生章节标签
-        ("高三冲刺期", "侧边原生文字_右", "高三阶段\n真题+冲文化", 0.56, 0.30, 15.0, 3_800_000, TextIntro.向上弹入, sfx_ding),
-    ]
-    side_last_end: dict[str, int] = {}
     side_added = 0
-    for kw, tname, label, sx, sy, ssz, dur_us, anim, sfx_p in side_text_specs:
-        hit = find_cue_range(cues, kw)
-        if not hit:
-            print(f"[side-text-warn] cue keyword not found: {kw!r}")
-            continue
-        st = hit[0]
-        prev_end = side_last_end.get(tname, 0)
-        if st < prev_end + 150_000:
-            st = prev_end + 150_000
-        if st >= total_tl_us - 400_000:
-            continue
-        if st + dur_us > total_tl_us:
-            dur_us = total_tl_us - st
-        if dur_us < 600_000:
+    for z, tname, label, sx, sy, ssz, st, ed, anim in side_text_plan:
+        dur_us = min(ed, total_tl_us) - st
+        if dur_us < 1_000_000:
             continue
         sseg = TextSegment(
             label,
@@ -1388,11 +1417,10 @@ def main() -> int:
             border=None,
             shadow=TextShadow(alpha=0.85, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=5.0, angle=-45.0),
         )
-        sseg.add_animation(anim, "0.4s")
+        sseg.add_animation(anim, "0.35s")
         script.add_segment(sseg, tname)
-        side_last_end[tname] = st + dur_us
         side_added += 1
-    print(f"[side-text] added {side_added} native JianYing animated side callouts")
+    print(f"[side-text] added {side_added} collision-free native JianYing animated side callouts")
 
     # 9b. Compute 3 restrained TL0-style `暗角` focus moments (no gimmicky AI effects!)
     vignette_ranges: list[tuple[int, int]] = []
