@@ -57,7 +57,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v9"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v10"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -676,7 +676,35 @@ def patch_draft_postprocess(
                 seg["volume"] = 0.0
                 seg["last_nonzero_volume"] = 0.0
                 extra_refs = seg.setdefault("extra_material_refs", [])
-                # Exact 1:1 pixel circle on 1320x1760 (0.58*1320 == 0.435*1760 == 765.6px)
+                # Match user's exact v9 hand-tuned circular masks:
+                # - Full-screen B-roll top-right PiP (start < 20s): subtle feather=0.04 (~4% UI), width=0.58, height=0.435, centerY=0.14
+                # - Data-separation top-center PiP (start >= 20s): crisp feather=0.0, larger face frame width=0.709, height=0.532, centerX=-0.064, centerY=0.093
+                is_broll_pip = seg.get("target_timerange", {}).get("start", 0) < 20_000_000
+                cmask_cfg = (
+                    {
+                        "aspectRatio": 1.0,
+                        "centerX": 0.0,
+                        "centerY": 0.14,
+                        "feather": 0.04,
+                        "height": 0.435,
+                        "invert": False,
+                        "rotation": 0.0,
+                        "roundCorner": 0.0,
+                        "width": 0.58,
+                    }
+                    if is_broll_pip
+                    else {
+                        "aspectRatio": 1.0,
+                        "centerX": -0.064,
+                        "centerY": 0.093,
+                        "feather": 0.0,
+                        "height": 0.532,
+                        "invert": False,
+                        "rotation": 0.0,
+                        "roundCorner": 0.0,
+                        "width": 0.709,
+                    }
+                )
                 cmask_id = str(uuid.uuid4()).upper()
                 cmask_obj = {
                     "id": cmask_id,
@@ -690,17 +718,7 @@ def patch_draft_postprocess(
                     "resource_id": CIRCLE_MASK_RESOURCE_ID,
                     "path": CIRCLE_MASK_CACHE_PATH,
                     "text_config": {"align_type": 15},
-                    "config": {
-                        "aspectRatio": 1.0,
-                        "centerX": 0.0,
-                        "centerY": 0.14,
-                        "feather": 0.1732,  # Exact user hand-tuned soft circular feather from v8!
-                        "height": 0.435,
-                        "invert": False,
-                        "rotation": 0.0,
-                        "roundCorner": 0.0,
-                        "width": 0.58,
-                    },
+                    "config": cmask_cfg,
                 }
                 masks_list.append(cmask_obj)
                 extra_refs.append(cmask_id)
@@ -853,6 +871,18 @@ def patch_draft_postprocess(
                     font_obj["path"] = local_ttf
                     mat["font_path"] = local_ttf
                     mat["font_resource_id"] = fid
+                    # Apply user's v9 two-tone data-list styling: first header line #FFFFFF + data lines #FFF29D!
+                    txt_val = str(cjson.get("text") or "")
+                    first_line = txt_val.split("\n", 1)[0]
+                    if "\n" in txt_val and first_line in ("高分省", "捡漏省", "国美校考", "央美校考"):
+                        hdr_len = len(first_line)
+                        st_hdr = copy.deepcopy(st0)
+                        st_hdr["range"] = [0, hdr_len]
+                        st_hdr["fill"]["content"]["solid"]["color"] = [1.0, 1.0, 1.0]
+                        st_body = copy.deepcopy(st0)
+                        st_body["range"] = [hdr_len, len(txt_val)]
+                        st_body["fill"]["content"]["solid"]["color"] = list(COLOR_YELLOW)
+                        cjson["styles"] = [st_hdr, st_body]
                     mat["content"] = json.dumps(cjson, ensure_ascii=False)
                     patched_fonts += 1
 
@@ -1128,9 +1158,9 @@ def main() -> int:
         (119_330_000, 123_070_000, "高三阶段\n真题+冲文化"),
     ]
     data_sep_windows: list[tuple[int, int, float, float, float]] = [
-        # (start_us, end_us, blur_pct, veil_alpha, speaker_y)
-        (cue_st("浙江省490", 55.93), 65_500_000, 45.0, 0.42, 0.34),
-        (103_900_000, 111_850_000, 42.0, 0.38, 0.36),
+        # (start_us, end_us, blur_pct, veil_alpha, speaker_y) — exact user v9 hand-tuned top-center y=0.597!
+        (cue_st("浙江省490", 55.93), 65_500_000, 45.0, 0.42, 0.597),
+        (103_900_000, 111_850_000, 42.0, 0.38, 0.597),
     ]
     blur_windows: list[tuple[int, int, float]] = [
         (st, ed, 50.0) for st, ed, _ in chapter_windows
@@ -1277,12 +1307,15 @@ def main() -> int:
         print(f"[broll] added 3 full-screen 国美 credential photos + v8 top-right circular PiP ({b_st/1e6:.2f}s-{b_ed/1e6:.2f}s)")
 
     # 6. Add top-title dark gradient shadow layer (黑场 + 线性蒙版 100% 羽化) & top two-line title
-    #    Smartly cut out around full-screen B-roll AND all 3 chapter dividers (matching user's v8 cutout!)
+    #    Smartly cut out around full-screen B-roll, all 3 chapter dividers, AND both data-separation screens
+    #    (matching user's v9 cutout so top-center circular speaker PiP y=0.597 sits cleanly in top headroom!)
     cutout_windows: list[tuple[int, int]] = []
     if broll_window is not None:
         cutout_windows.append(broll_window)
     for ch_st, ch_ed, _ in chapter_windows:
         cutout_windows.append((ch_st, ch_ed))
+    for ds_st, ds_ed, _, _, _ in data_sep_windows:
+        cutout_windows.append((ds_st, ds_ed))
     cutout_windows.sort()
     top_spans: list[tuple[int, int]] = []
     cur_t = 0
