@@ -57,7 +57,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v12"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v13"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -439,21 +439,26 @@ def _smart_chinese_split(chunk: str, max_chars: int) -> list[str]:
 # All emphasis keywords use FontType.仓耳丰黑 + COLOR_YELLOW (#FFF29D) + direct font_size (18-21, scale=1.0).
 # Format: (match_text, main_text_le_10, kw_text, kw_font_size, kw_anim, sfx_name, sfx_vol)
 KEYWORD_SPLIT_RULES: list[tuple[str, str, str, float, TextIntro, str, float]] = [
-    ("书法生想上国美央美", "书法生想上", "国美央美", 21.0, TextIntro.向上弹入, "ding", 0.45),
-    ("应该给孩子如何规划", "应该给孩子", "如何规划？", 20.5, TextIntro.向上弹入, "drop", 0.45),
-    ("从本科读到硕士 一共七年", "从本科读到硕士", "一共七年", 20.0, TextIntro.向上弹入, "drop", 0.45),
-    ("每年很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", 19.0, TextIntro.向上弹入, "ding", 0.48),
-    ("很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", 19.0, TextIntro.向上弹入, "ding", 0.48),
-    ("最后都硬生生的折在了文化分上", "最后都硬生生的", "折在了文化分上", 18.5, TextIntro.缩小, "dong", 0.42),
-    ("平时死守文化课", "平时死守", "文化课", 21.0, TextIntro.向上弹入, "ding", 0.46),
-    ("就一个 不低于本省的本科线", "就一个", "不低于本省本科线", 18.0, TextIntro.左移弹动, "drop", 0.45),
-    ("竟然可以悬殊100分", "竟然可以", "悬殊100分!", 20.0, TextIntro.缩小, "stamp", 0.46),
-    ("去画室机构烧钱集训", "去画室机构", "烧钱集训", 20.0, TextIntro.向上弹入, "dong", 0.40),
-    ("就可以让小孩尽早接触篆刻科目啦", "就可以让小孩尽早接触", "篆刻科目", 20.0, TextIntro.左移弹动, "ding", 0.48),
-    ("校考科目有大半的分数都在篆刻", "校考科目有大半的分数", "都在篆刻", 20.0, TextIntro.缩小, "stamp", 0.46),
-    ("直接占了分数的大半壁江山", "直接占了分数的", "大半壁江山", 19.5, TextIntro.向上弹入, "drop", 0.45),
-    ("绝不要彻底丢掉文化课", "绝不要彻底丢掉", "文化课", 21.0, TextIntro.缩小, "dong", 0.42),
-    ("那么可以留下书法艺考", "那么可以留下", "书法艺考", 20.0, TextIntro.向上弹入, "ding", 0.50),
+    ("书法生想上国美央美", "书法生想上", "国美央美", 21.0, TextIntro.向上弹入, "ding", 1.0),
+    ("应该给孩子如何规划", "应该给孩子", "如何规划？", 20.5, TextIntro.向上弹入, "drop", 1.0),
+    ("从本科读到硕士 一共七年", "从本科读到硕士", "一共七年", 20.0, TextIntro.向上弹入, "drop", 1.0),
+    # 23.9s-32.7s fresh non-repetitive animations (开幕 / 放大 / 汇聚 / 向下露出 — never repeated elsewhere!)
+    ("文化课和专业课两条线", "文化课和专业课", "两条线", 21.0, TextIntro.开幕, "drop", 1.0),
+    ("高二的书法生家长拆透", "高二的书法生家长", "拆透", 21.0, TextIntro.放大, "stamp", 1.0),
+    ("最大可能上国美和央美", "最大可能上", "国美和央美", 20.0, TextIntro.汇聚, "ding", 1.0),
+    ("首先要知道一个事实啊", "首先要知道", "一个事实啊", 20.0, TextIntro.向下露出, "drop", 1.0),
+    ("每年很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", 19.0, TextIntro.向上弹入, "ding", 1.0),
+    ("很多孩子拿到了国央的合格证", "每年很多孩子拿到了", "国央的合格证", 19.0, TextIntro.向上弹入, "ding", 1.0),
+    ("最后都硬生生的折在了文化分上", "最后都硬生生的", "折在了文化分上", 18.5, TextIntro.缩小, "dong", 1.0),
+    ("平时死守文化课", "平时死守", "文化课", 21.0, TextIntro.向上弹入, "ding", 1.0),
+    ("就一个 不低于本省的本科线", "就一个", "不低于本省本科线", 18.0, TextIntro.左移弹动, "drop", 1.0),
+    ("竟然可以悬殊100分", "竟然可以", "悬殊100分!", 20.0, TextIntro.缩小, "stamp", 1.25),
+    ("去画室机构烧钱集训", "去画室机构", "烧钱集训", 20.0, TextIntro.向上弹入, "dong", 1.0),
+    ("就可以让小孩尽早接触篆刻科目啦", "就可以让小孩尽早接触", "篆刻科目", 20.0, TextIntro.左移弹动, "ding", 1.0),
+    ("校考科目有大半的分数都在篆刻", "校考科目有大半的分数", "都在篆刻", 20.0, TextIntro.缩小, "stamp", 1.0),
+    ("直接占了分数的大半壁江山", "直接占了分数的", "大半壁江山", 19.5, TextIntro.向上弹入, "drop", 1.0),
+    ("绝不要彻底丢掉文化课", "绝不要彻底丢掉", "文化课", 21.0, TextIntro.缩小, "dong", 1.0),
+    ("那么可以留下书法艺考", "那么可以留下", "书法艺考", 20.0, TextIntro.向上弹入, "ding", 1.0),
 ]
 
 
@@ -682,9 +687,10 @@ def patch_draft_postprocess(
             for seg in tr.get("segments", []):
                 seg["volume"] = 0.0
                 seg["last_nonzero_volume"] = 0.0
-                # CRITICAL FIX: Clone an INDEPENDENT video material per Track 3 circular PiP segment!
-                # In JianYing, `video_mask_stroke` lives on `materials.videos[i]`. Sharing Track 0's material_id
-                # causes JianYing to wipe mask stroke on save/reopen because Track 0 has no mask!
+                # Match user's exact v12 hand-tuned circular masks & stroke distinction:
+                # - Full-screen B-roll top-right PiP (start < 20s): soft feather=0.04, enable_mask_stroke=False
+                # - Data-separation top-center PiP (start >= 20s): crisp feather=0.0, enable_mask_stroke=True (white single stroke size=20)
+                is_broll_pip = seg.get("target_timerange", {}).get("start", 0) < 20_000_000
                 orig_vmat = vmat_by_id.get(seg.get("material_id"))
                 if orig_vmat is not None:
                     indep_vmat = copy.deepcopy(orig_vmat)
@@ -704,13 +710,9 @@ def patch_draft_postprocess(
                     }
                     videos_list.append(indep_vmat)
                     seg["material_id"] = new_mid
-                    seg["enable_mask_stroke"] = True
+                    seg["enable_mask_stroke"] = not is_broll_pip
 
                 extra_refs = seg.setdefault("extra_material_refs", [])
-                # Match user's exact v9 hand-tuned circular masks:
-                # - Full-screen B-roll top-right PiP (start < 20s): subtle feather=0.04 (~4% UI), width=0.58, height=0.435, centerY=0.14
-                # - Data-separation top-center PiP (start >= 20s): crisp feather=0.0, larger face frame width=0.709, height=0.532, centerX=-0.064, centerY=0.093
-                is_broll_pip = seg.get("target_timerange", {}).get("start", 0) < 20_000_000
                 cmask_cfg = (
                     {
                         "aspectRatio": 1.0,
@@ -1599,7 +1601,7 @@ def main() -> int:
         pseg.add_animation(OutroType.渐隐, "0.22s")
         script.add_segment(pseg, tname)
         if sfx_p is not None:
-            sfx_events.append((st, sfx_p, 0.40))
+            sfx_events.append((st, sfx_p, 1.0))
         pip_count += 1
     print(f"[pip] added {pip_count} collision-free real 交付知识库 PiPs")
 
@@ -1636,7 +1638,7 @@ def main() -> int:
             if vdur >= 600_000:
                 vignette_ranges.append((vst, vdur))
 
-    # 10. Add looped BGM track (volume = 0.3162 ≈ -10 dB, matching Draft #1!)
+    # 10. Add looped BGM track (volume = 0.1778 ≈ -15 dB, matching user's exact v12 hand-tuned audio mix!)
     bgm_mat = AudioMaterial(str(bgm_path))
     bgm_cursor = 0
     bgm_segs = 0
@@ -1647,7 +1649,7 @@ def main() -> int:
             bgm_mat,
             Timerange(bgm_cursor, seg_dur),
             source_timerange=Timerange(0, seg_dur),
-            volume=0.3162,
+            volume=0.1778,
         )
         if bgm_cursor == 0:
             aseg.add_fade("0.8s", "0s")
@@ -1656,7 +1658,7 @@ def main() -> int:
         script.add_segment(aseg, "BGM_古筝轻音乐")
         bgm_cursor += seg_dur
         bgm_segs += 1
-    print(f"[bgm] added {bgm_segs} looped BGM segments (vol=0.3162)")
+    print(f"[bgm] added {bgm_segs} looped BGM segments (vol=0.1778 ≈ -15 dB)")
 
     # 11. Add sparse SFX accents (deduplicated / non-overlapping on single SFX track)
     sfx_mat_cache: dict[Path, AudioMaterial] = {}
