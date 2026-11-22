@@ -57,7 +57,7 @@ from pyJianYingDraft import (
 # Paths & Constants
 # ---------------------------------------------------------------------------
 JIANYING_DRAFTS_ROOT = Path(r"D:\Software\剪映\JianyingPro Drafts")
-NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v11"
+NEW_DRAFT_NAME = "261115书法生想上国美央美_AI粗剪包装_v12"
 
 RAW_VIDEO_PATH = Path(r"D:\Software\剪映\AI素材库\261115书法生想上国美央美_原片.mp4")
 BLACK_FIELD_PATH = Path(r"D:\Software\剪映\AI素材库\黑场_1920x1080.png")
@@ -704,6 +704,7 @@ def patch_draft_postprocess(
                     }
                     videos_list.append(indep_vmat)
                     seg["material_id"] = new_mid
+                    seg["enable_mask_stroke"] = True
 
                 extra_refs = seg.setdefault("extra_material_refs", [])
                 # Match user's exact v9 hand-tuned circular masks:
@@ -1536,8 +1537,8 @@ def main() -> int:
         ("RIGHT", "画中画_右", img_zk_compare_1002,  0.61, 0.08, 0.36, cue_st("大半的分数", 101.23), 103_700_000, IntroType.向左滑动, sfx_page),
 
         # --- 国美 vs 央美科目分值数据分离段 (103.9s-111.85s): 上方圆形清晰人物 + 左文右图错位，零叠字 ---
-        ("RIGHT", "画中画_右", img_guhanyu_100,      0.54, -0.02, 0.34, 105_500_000, 107_850_000, IntroType.向左滑动, sfx_drop),
-        ("RIGHT", "画中画_右", img_zk_compare_1007,  0.54, -0.02, 0.34, 108_100_000, 111_850_000, IntroType.向左滑动, sfx_page),
+        ("RIGHT", "画中画_右", img_guhanyu_100,      0.54, -0.06, 0.34, 105_500_000, 107_850_000, IntroType.向左滑动, sfx_drop),
+        ("RIGHT", "画中画_右", img_zk_compare_1007,  0.54, -0.06, 0.34, 108_100_000, 111_850_000, IntroType.向左滑动, sfx_page),
         # 补课提醒段: 左/右无文字, 展示央美篆刻92分全国最高喜报 (112.2s-116.5s)
         ("LEFT",  "画中画_左", img_ym_zhuanke,      -0.62, 0.08, 0.35, 112_200_000, 116_500_000, IntroType.向右滑动, sfx_drop),
 
@@ -1557,15 +1558,15 @@ def main() -> int:
     # Scheduled native JianYing animated data callouts + 3 user-tuned centered 25pt chapter dividers!
     # Format: (zone, track_name, label, x, y, font_size, start_us, end_us, anim)
     side_text_plan: list[tuple[str, str, str, float, float, float, int, int, TextIntro]] = [
-        # 数据分离段 #1 — 南北各省本科线对比 (55.9s-65.5s): 顶部大圆人物 y=+0.597 + 中部双色数据 y=-0.02 + 底部字幕 y=-0.729！
-        ("LEFT",   "侧边原生文字_左", "高分省\n浙 490\n苏 480\n豫 460\n鲁 440", -0.50, -0.02, 15.5, cue_st("浙江省490", 55.93), 65_500_000, TextIntro.打字机_I),
-        ("RIGHT",  "侧边原生文字_右", "捡漏省\n黑 380\n吉 340\n内蒙 400",        0.50, -0.02, 15.5, cue_st("黑龙江380", 61.90), 65_500_000, TextIntro.打字机_I),
+        # 数据分离段 #1 — 南北各省本科线对比 (55.9s-65.5s): 顶部大圆人物 y=+0.597 + 中部双色数据 y=-0.06 + 底部字幕 y=-0.729！
+        ("LEFT",   "侧边原生文字_左", "高分省\n浙 490\n苏 480\n豫 460\n鲁 440", -0.50, -0.06, 15.5, cue_st("浙江省490", 55.93), 65_500_000, TextIntro.打字机_I),
+        ("RIGHT",  "侧边原生文字_右", "捡漏省\n黑 380\n吉 340\n内蒙 400",        0.50, -0.06, 15.5, cue_st("黑龙江380", 61.90), 65_500_000, TextIntro.打字机_I),
         # 3 处居中大字章节分段 (完全复刻用户 v8 手调: 25pt 居中 y=-0.04 + 仅主轨模糊 + 锐利半透明黑场衬底条!)
         ("CENTER", "侧边原生文字_右", "高一阶段\n文化+打底",                       0.00, -0.04, 25.0, 81_170_000,  83_670_000, TextIntro.向上弹入),
         ("CENTER", "侧边原生文字_右", "高二阶段\n抢跑篆刻",                       0.00, -0.04, 25.0, 93_530_000,  96_770_000, TextIntro.向上弹入),
-        # 数据分离段 #2 — 国美 vs 央美科目分值 (103.9s-111.85s): 顶部大圆人物 y=+0.597 + 左文右图 y=-0.02 + 底部字幕 y=-0.729！
-        ("LEFT",   "侧边原生文字_左", "国美校考\n书法 100\n篆刻 100\n古汉语 100", -0.50, -0.02, 15.0, 103_900_000, 107_850_000, TextIntro.打字机_I),
-        ("LEFT",   "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100",             -0.50, -0.02, 15.5, 108_100_000, 111_850_000, TextIntro.向上弹入),
+        # 数据分离段 #2 — 国美 vs 央美科目分值 (103.9s-111.85s): 顶部大圆人物 y=+0.597 + 左文右图 y=-0.06 + 底部字幕 y=-0.729！
+        ("LEFT",   "侧边原生文字_左", "国美校考\n书法 100\n篆刻 100\n古汉语 100", -0.50, -0.06, 15.0, 103_900_000, 107_850_000, TextIntro.打字机_I),
+        ("LEFT",   "侧边原生文字_左", "央美校考\n书法 100\n篆刻 100",             -0.50, -0.06, 15.5, 108_100_000, 111_850_000, TextIntro.向上弹入),
         # 章节分段 #3
         ("CENTER", "侧边原生文字_右", "高三阶段\n真题+冲文化",                     0.00, -0.04, 25.0, 119_330_000, 123_070_000, TextIntro.向上弹入),
     ]
